@@ -14,34 +14,44 @@ intrinsic_camera_matrix_filenames = ['intr_cam1.xml', 'intr_cam2.xml', 'intr_cam
 extrinsic_camera_matrix_filenames = ['extr_cam1.xml', 'extr_cam2.xml', 'extr_cam3.xml']
 
 
-class HDC(VisionDataset):
-    def __init__(self, root='/131_data/datasets/HiCAMS/20240415'):
+class HDC_OLD(VisionDataset):
+    def __init__(self, root='/131_data/datasets/HiCAMS/20240110'):
         super().__init__(root)
-        
+        # image of shape C,H,W (C,N_row,N_col); xy indexging; x,y (w,h) (n_col,n_row)
+        # WILDTRACK has ij-indexing: H*W=480*1440, thus x (i) is \in [0,480), y (j) is \in [0,1440)
+        # WILDTRACK has in-consistent unit: centi-meter (cm) for calibration & pos annotation
         self.__name__ = 'HDC'
-        self.img_shape, self.worldgrid_shape = [1080, 1920], [900, 900]  # H,W; N_row,N_col
-        self.num_cam, self.num_frame = 3, 204
+        self.img_shape, self.worldgrid_shape = [1080, 1920], [480, 1440]  # H,W; N_row,N_col
+        self.num_cam, self.num_frame = 3, 290
         self.frame_step = 1
-        
-        self.worldcoord_from_worldgrid_mat = np.array([[1, 0, -450], [0, 1, -450], [0, 0, 1]])
+        # self.worldcoord_from_worldgrid_mat = np.array([[0, 2.5, -300], [2.5, 0, -900], [0, 0, 1]])
+        self.worldcoord_from_worldgrid_mat = np.array([[0, 2.5, -3.00], [2.5, 0, -9.00], [0, 0, 1]])
         self.intrinsic_matrices, self.extrinsic_matrices = zip(
             *[self.get_intrinsic_extrinsic_matrix(cam) for cam in range(self.num_cam)])
 
     def get_image_fpaths(self, frame_range):
         img_fpaths = {cam: {} for cam in range(self.num_cam)}
+        file_pattern = r'cam([0-9])_(\d+)_(\d+).jpg'
         for camera_folder in sorted(os.listdir(os.path.join(self.root, 'images'))):
             cam = int(camera_folder[-1]) - 1
             if cam >= self.num_cam:
                 continue
-            for fname in sorted(os.listdir(os.path.join(self.root, 'images', camera_folder))):
-                frame = int(fname.split('.')[0])
-                if frame in frame_range:
-                    img_fpaths[cam][frame] = os.path.join(self.root, 'images', camera_folder, fname)
+            # seq = '01'
+            seq = '02'
+            for fname in sorted(os.listdir(os.path.join(self.root, 'images', camera_folder, seq))):
+                search = re.search(file_pattern, fname)
+                cam_, seq_, frame = search.groups()
+                frame = int(frame)
+                if frame-1 in frame_range:
+                    img_fpaths[cam][frame-1] = os.path.join(self.root, 'images', camera_folder, seq, fname)
+        
+        # print(img_fpaths)
+        
         return img_fpaths
 
     def get_worldgrid_from_pos(self, pos):
-        grid_x = pos % 900
-        grid_y = pos // 900
+        grid_y = pos % 480
+        grid_x = pos // 480
         return np.array([grid_x, grid_y], dtype=int)
 
     def get_intrinsic_extrinsic_matrix(self, camera_i):

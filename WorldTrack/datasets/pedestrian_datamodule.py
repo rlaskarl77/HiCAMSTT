@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 from datasets.multiviewx_dataset import MultiviewX
 from datasets.wildtrack_dataset import Wildtrack
 from datasets.wildtrack_dataset_3cam import Wildtrack3cam
-from datasets.hdc_dataset import HDC
+from WorldTrack.datasets.hdc_dataset import HDC
 from datasets.pedestrian_dataset import PedestrianDataset
 from datasets.sampler import TemporalSampler
 
@@ -44,7 +44,7 @@ class PedestrianDataModule(pl.LightningDataModule):
             base = MultiviewX(self.data_dir)
         # elif 'wildtrack3cam' in self.dataset.lower():
         #     base = Wildtrack3cam(self.data_dir)
-        elif '20240110' in self.dataset.lower():
+        elif '20240110'or '20240415' in self.dataset.lower():
             base = HDC(self.data_dir)
         else:
             raise ValueError(f'Unknown dataset name {self.dataset}')

@@ -13,8 +13,9 @@ import torch
 intrinsic_camera_matrix_filenames = ['intr_cam1.xml', 'intr_cam2.xml', 'intr_cam3.xml']
 extrinsic_camera_matrix_filenames = ['extr_cam1.xml', 'extr_cam2.xml', 'extr_cam3.xml']
 
-DATA_PATH = '/131_data/datasets/HiCAMS/20240415'
+DATA_PATH = '/131_data/datasets/HiCAMS/20240110'
 SAVE_PATH = '/home/namgi/TrackTacular/visualization/hdc/demo'
+# SAVE_PATH = '/home/namgi/TrackTacular/visualization/hdc/demo02'
 PRED_FILE = 'mota_pred.txt'
 
 font_size = 50
@@ -49,11 +50,11 @@ def project_2d_points(intrinsic_mat, extrinsic_mat, input_points, x_offset, y_of
         input_points = np.transpose(input_points)
     B = input_points.shape[1]
     input_points = np.concatenate([
-        input_points[0:1, :],
         input_points[1:2, :], 
+        input_points[0:1, :],
         np.zeros([1, B]), np.ones([1, B])], axis=0)
-    input_points[0, :] = input_points[0, :] + x_offset - 450
-    input_points[1, :] = input_points[1, :] + y_offset - 450
+    input_points[0, :] = input_points[0, :] * 2.5 + x_offset - 300
+    input_points[1, :] = input_points[1, :] * 2.5 + y_offset - 900
     input_points[2, :] += z_offset
     
     # print(intrinsic_mat.shape, extrinsic_mat.shape, input_points.shape)
@@ -67,7 +68,7 @@ def project_2d_points(intrinsic_mat, extrinsic_mat, input_points, x_offset, y_of
 def get_2d_to_3d_mat(intrinsic_mat, extrinsic_mat):
     threeD2twoD = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 0], [0, 0, 1]])
     project_mat = intrinsic_mat @ extrinsic_mat @ threeD2twoD
-    greed_T_3d = np.array([[1, 0, -450], [0, 1, -450], [0, 0, 1]])
+    greed_T_3d = np.array([[0, 2.5, -300], [2.5, 0, -900], [0, 0, 1]])
     greed_T_3d = np.linalg.inv(greed_T_3d)
     
     return greed_T_3d @ np.linalg.inv(project_mat)
@@ -113,7 +114,7 @@ def plot(path):
     
     image_paths = {
         camera_id: sorted(
-            [ osp.join(DATA_PATH, f'images/cam{camera_id+1}/{int(frame*5):08d}.jpg')
+            [ osp.join(DATA_PATH, f'images/cam{camera_id+1}/{seq}/cam{camera_id+1}_{seq}_{int(frame)+1}.jpg')
                 for frame in frames ]
             ) for camera_id in camera_ids.keys() }
     
@@ -140,8 +141,6 @@ def plot(path):
     for frame_idx, frame in enumerate(frames):
         
         mosaic = Image.new('RGB', size=(1920, 1080), color=(128, 128, 128))
-        if not osp.exists(osp.join(SAVE_PATH, 'mosaic')):
-            os.makedirs(osp.join(SAVE_PATH, 'mosaic'))
         frame_save_path = osp.join(SAVE_PATH, 'mosaic', f'{frame_idx:04d}.png')
     
         
