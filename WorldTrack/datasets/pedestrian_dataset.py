@@ -52,16 +52,16 @@ class PedestrianDataset(VisionDataset):
         
         frame_range = range(0, int(self.num_frame))
         
-        if self.base.__name__ == 'HDC':
-            self.img_fpaths = self.base.get_image_fpaths(frame_range)
-            self.world_gt = {}
-            self.imgs_gt = {}
-            self.pid_dict = {}
+        # if self.base.__name__ == 'HDC':
+        #     self.img_fpaths = self.base.get_image_fpaths(frame_range)
+        #     self.world_gt = {}
+        #     self.imgs_gt = {}
+        #     self.pid_dict = {}
             
-            self.calibration = {}
-            self.setup()
+        #     self.calibration = {}
+        #     self.setup()
             
-            return
+        #     return
 
         self.img_fpaths = self.base.get_image_fpaths(frame_range)
         self.world_gt = {}
@@ -298,8 +298,8 @@ class PedestrianDataset(VisionDataset):
             offsets), torch.stack(sizes), torch.stack(pids), torch.stack(valids)
 
     def __len__(self):
-        if self.base.__name__ == 'HDC':
-            return len(self.img_fpaths[0])
+        # if self.base.__name__ == 'HDC':
+        #     return len(self.img_fpaths[0])
         return len(self.world_gt.keys())
     
     def getitem_hdc(self, index):
@@ -333,8 +333,8 @@ class PedestrianDataset(VisionDataset):
 
     def __getitem__(self, index):
         
-        if self.base.__name__ == 'HDC':
-            return self.getitem_hdc(index)
+        # if self.base.__name__ == 'HDC':
+        #     return self.getitem_hdc(index)
         
         frame = list(self.world_gt.keys())[index]
         pre_frame = list(self.world_gt.keys())[max(index - 1, 0)]

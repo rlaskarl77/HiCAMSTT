@@ -38,12 +38,11 @@ class PedestrianDataModule(pl.LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
         if 'wildtrack' in self.dataset.lower():
-            base = Wildtrack3cam(self.data_dir)
-            # base = Wildtrack(self.data_dir)
+            if '3cam' in self.dataset.lower():
+                base = Wildtrack3cam(self.data_dir)
+            base = Wildtrack(self.data_dir)
         elif 'multiviewx' in self.dataset.lower():
             base = MultiviewX(self.data_dir)
-        # elif 'wildtrack3cam' in self.dataset.lower():
-        #     base = Wildtrack3cam(self.data_dir)
         elif '20240110'or '20240415' in self.dataset.lower():
             base = HDC(self.data_dir)
         else:
