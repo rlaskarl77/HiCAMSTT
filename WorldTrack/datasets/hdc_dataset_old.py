@@ -20,7 +20,7 @@ class HDC_OLD(VisionDataset):
         # image of shape C,H,W (C,N_row,N_col); xy indexging; x,y (w,h) (n_col,n_row)
         # WILDTRACK has ij-indexing: H*W=480*1440, thus x (i) is \in [0,480), y (j) is \in [0,1440)
         # WILDTRACK has in-consistent unit: centi-meter (cm) for calibration & pos annotation
-        self.__name__ = 'HDC'
+        self.__name__ = 'HDC_old'
         self.img_shape, self.worldgrid_shape = [1080, 1920], [480, 1440]  # H,W; N_row,N_col
         self.num_cam, self.num_frame = 3, 290
         self.frame_step = 1

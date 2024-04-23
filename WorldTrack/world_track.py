@@ -252,8 +252,9 @@ class WorldTrackModel(pl.LightningModule):
         item, target = batch
         output = self(item)
 
-        if batch_idx % 100 == 1:
-            self.plot_data(target, output, batch_idx)
+        # if batch_idx % 100 == 1:
+        #     self.plot_data(target, output, batch_idx)
+        self.plot_data(target, output, batch_idx)
 
         total_loss, loss_dict = self.loss(target, output)
 
