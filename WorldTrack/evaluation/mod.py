@@ -26,11 +26,11 @@ def modMetricsCalculator(res_fpath, gt_fpath):
     @return: recall, precision, MODA, MODP
     """
     
-    print(gt_fpath)
-    print(res_fpath)
+    # print(gt_fpath)
+    # print(res_fpath)
 
-    gtRaw = np.loadtxt(gt_fpath)
-    detRaw = np.loadtxt(res_fpath)
+    gtRaw = np.loadtxt(gt_fpath, delimiter=' ')
+    detRaw = np.loadtxt(res_fpath, delimiter=' ')
     frames = np.unique(detRaw[:, 0]) if detRaw.size else np.zeros(0)
     frame_ctr = 0
     gt_flag = True

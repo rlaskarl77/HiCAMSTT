@@ -50,7 +50,7 @@ class PedestrianDataset(VisionDataset):
         else:
             frame_range = range(int(self.num_frame * 0.9), self.num_frame)
         
-        frame_range = range(0, int(self.num_frame))
+        # frame_range = range(0, int(self.num_frame))
         
         # if self.base.__name__ == 'HDC':
         #     self.img_fpaths = self.base.get_image_fpaths(frame_range)

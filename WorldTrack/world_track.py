@@ -292,8 +292,13 @@ class WorldTrackModel(pl.LightningModule):
         for frame, grid_gt, xy, score in zip(item['frame'], item['grid_gt'], ref_xy, scores_e):
             frame = int(frame.item())
             valid = score > self.conf_threshold
+            
+            gt_list = [[frame, x.item(), y.item()] for x, y, _ in grid_gt[grid_gt.sum(1) != 0]]
+            gt_list = np.array(gt_list)
+            gt_list = gt_list[gt_list[:, 0] == frame]
 
-            self.moda_gt_list.extend([[frame, x.item(), y.item()] for x, y, _ in grid_gt[grid_gt.sum(1) != 0]])
+            if len(gt_list) > 0:
+                self.moda_gt_list.extend(gt_list.tolist())
             self.moda_pred_list.extend([[frame, x.item(), y.item()] for x, y in xy[valid]])
 
         # tracking
@@ -302,12 +307,28 @@ class WorldTrackModel(pl.LightningModule):
                     scores_e.cpu())):
             frame = int(frame.item())
             output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
+            
+            mota_gt = [[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
+                       for x, y, i in grid_gt[grid_gt.sum(1) != 0]]
+            mota_pred = [[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
+                            + s.xy.tolist() + [-1] for s in output_stracks]
+            
+            mota_gt = np.array(mota_gt)
+            mota_pred = np.array(mota_pred)
+            if len(mota_gt) == 0 or len(mota_pred) == 0:
+                mota_pred = np.zeros((0, 11))
+            
+            mota_gt = mota_gt[mota_gt[:, 0] == seq_num.item()]
+            mota_pred = mota_pred[mota_pred[:, 0] == seq_num.item()]
+            
+            self.mota_gt_list.extend(mota_gt.tolist())
+            self.mota_pred_list.extend(mota_pred.tolist())
 
-            self.mota_gt_list.extend([[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
-                                      for x, y, i in grid_gt[grid_gt.sum(1) != 0]])
-            self.mota_pred_list.extend([[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
-                                        + s.xy.tolist() + [-1]
-                                        for s in output_stracks])
+            # self.mota_gt_list.extend([[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
+            #                           for x, y, i in grid_gt[grid_gt.sum(1) != 0]])
+            # self.mota_pred_list.extend([[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
+            #                             + s.xy.tolist() + [-1]
+            #                             for s in output_stracks])
 
     def on_test_epoch_end(self):
         log_dir = self.trainer.log_dir if self.trainer.log_dir is not None else '../data/cache'
@@ -315,8 +336,8 @@ class WorldTrackModel(pl.LightningModule):
         # detection
         pred_path = osp.join(log_dir, 'moda_pred.txt')
         gt_path = osp.join(log_dir, 'moda_gt.txt')
-        np.savetxt(pred_path, np.array(self.moda_pred_list), '%f')
-        np.savetxt(gt_path, np.array(self.moda_gt_list), '%d')
+        np.savetxt(pred_path, np.array(self.moda_pred_list), '%f', delimiter=' ', newline='\n')
+        np.savetxt(gt_path, np.array(self.moda_gt_list), '%d', delimiter=' ', newline='\n')
         recall, precision, moda, modp = modMetricsCalculator(osp.abspath(pred_path), osp.abspath(gt_path))
         self.log(f'detect/recall', recall)
         self.log(f'detect/precision', precision)
@@ -325,6 +346,7 @@ class WorldTrackModel(pl.LightningModule):
 
         # tracking
         scale = 1 if self.X == 150 else 0.025  # HACK
+        # scale = 0.01
         pred_path = osp.join(log_dir, 'mota_pred.txt')
         gt_path = osp.join(log_dir, 'mota_gt.txt')
         np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')

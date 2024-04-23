@@ -3,10 +3,10 @@ data:
   init_args:
     data_dir: "/131_data/datasets/HiCAMS/20240415"
 model:
-  resolution: [135, 2, 135]  # Y,Z,X
+  resolution: [225, 4, 225]  # Y,Z,X
   bounds: [0, 900, 0, 900, 0, 20]  # xmin,xmax,ymin,ymax,zmin,zmax
   depth: [32, 250, 3250]
-  # z_sign: -1
+  z_sign: -1
   num_cameras: 3
 trainer:
-  max_epochs: 300
+  max_epochs: 150
