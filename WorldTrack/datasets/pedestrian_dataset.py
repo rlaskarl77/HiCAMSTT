@@ -19,7 +19,8 @@ class PedestrianDataset(VisionDataset):
             resolution=(160, 4, 250),
             bounds=(-500, 500, -320, 320, 0, 2),
             final_dim: tuple = (720, 1280),
-            resize_lim: list = (0.8, 1.2),
+            # resize_lim: list = (0.8, 1.2),
+            resize_lim: list = (0.95, 1.05),
     ):
         super().__init__(base.root)
         self.base = base
@@ -262,6 +263,10 @@ class PedestrianDataset(VisionDataset):
         centers, offsets, sizes, pids, valids = [], [], [], [], []
         for cam in cameras:
             img = Image.open(self.img_fpaths[cam][frame]).convert('RGB')
+            # if np.random.rand() < 0.33:
+            #     img = Image.open(self.img_fpaths[cam][frame]).convert('RGB')
+            # else:
+            # img = Image.open(self.img_fpaths[cam][frame + self.base.frame_step * int(2*np.random.rand())]).convert('RGB')
             W, H = img.size
 
             resize_dims, crop = self.sample_augmentation()
@@ -300,6 +305,7 @@ class PedestrianDataset(VisionDataset):
     def __len__(self):
         # if self.base.__name__ == 'HDC':
         #     return len(self.img_fpaths[0])
+        # return len(self.world_gt.keys()) - 2
         return len(self.world_gt.keys())
     
     def getitem_hdc(self, index):
@@ -359,7 +365,8 @@ class PedestrianDataset(VisionDataset):
         if self.is_train:
             Rz = torch.eye(3)
             scene_center = torch.tensor([0., 0., 0.], dtype=torch.float32)
-            off = 0.25
+            # off = 0.25
+            off = 0.05
             scene_center[:2].uniform_(-off, off)
             augment = geom.merge_rt(Rz.unsqueeze(0), -scene_center.unsqueeze(0)).squeeze()
             worldgrid_T_worldcoord = torch.matmul(augment, worldgrid_T_worldcoord)
@@ -372,6 +379,14 @@ class PedestrianDataset(VisionDataset):
         grid_gt = torch.zeros((self.max_objects, 3), dtype=torch.long)
         grid_gt[:worldgrid_pts.shape[1], :2] = worldgrid_pts_org
         grid_gt[:worldgrid_pts.shape[1], 2] = world_pids
+        
+        # noise_intrins = torch.ones_like(intrins)
+        # noise_intrins += torch.randn_like(intrins) * 0.01
+        # intrins = intrins * noise_intrins
+        
+        # noise_extrins = torch.ones_like(extrins)
+        # noise_extrins += torch.randn_like(extrins) * 0.01
+        # extrins = extrins * noise_extrins
 
         item = {
             'img': imgs,  # S,3,H,W

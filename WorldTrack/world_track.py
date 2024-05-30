@@ -238,6 +238,9 @@ class WorldTrackModel(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         item, target = batch
         output = self(item)
+        
+        if batch_idx < 5:
+            self.plot_data_train(item, target, output, batch_idx)
 
         total_loss, loss_dict = self.loss(target, output)
 
@@ -384,6 +387,40 @@ class WorldTrackModel(pl.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {"scheduler": scheduler, "interval": "step"}
         }
+        
+    
+    def plot_data_train(self, item, target, output, batch_idx=0):
+        
+        # save plots to tensorboard in training loop
+        writer = self.logger.experiment
+        
+        imgs = item['img'] # B, S, 3, H, W
+        imgs0 = imgs[0]
+        imgs0 = imgs0.permute(0, 2, 3, 1).cpu().numpy()
+        
+        S = imgs0.shape[0]
+        fig, axs = plt.subplots(1, S, figsize=(S*4, 4))
+        for i, ax in enumerate(axs):
+            ax.imshow(imgs0[i])
+            ax.axis('off')
+            ax.set_title(f'cam{i+1}')
+            
+        plt.tight_layout()
+        writer.add_figure(f'plot/input{batch_idx}', fig, global_step=self.global_step)
+        plt.close(fig)
+        
+        center_e = output['instance_center'].detach()[-1].amax(0).sigmoid().squeeze().cpu().numpy()
+        center_g = target['center_bev'].detach()[-1].amax(0).sigmoid().squeeze().cpu().numpy()
+
+        # save plots to tensorboard in eval loop
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 8))
+        ax1.imshow(center_g)
+        ax2.imshow(center_e)
+        ax1.set_title('center_g')
+        ax2.set_title('center_e')
+        plt.tight_layout()
+        writer.add_figure(f'plot/train{batch_idx}', fig, global_step=self.global_step)
+        plt.close(fig)
 
 
 if __name__ == '__main__':

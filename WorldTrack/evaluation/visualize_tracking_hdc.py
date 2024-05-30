@@ -23,9 +23,8 @@ intrinsic_camera_matrix_filenames = ['intr_cam1.xml', 'intr_cam2.xml', 'intr_cam
 extrinsic_camera_matrix_filenames = ['extr_cam1.xml', 'extr_cam2.xml', 'extr_cam3.xml']
 
 DATA_PATH = '/131_data/datasets/HiCAMS/20240415'
-SAVE_PATH = '/home/namgi/TrackTacular/visualization/hdc/test_full'
-# PRED_FILE = '/home/namgi/TrackTacular/WorldTrack/lightning_logs/test_hdc/mota_pred.txt'
-PRED_FILE = '/home/namgi/TrackTacular/WorldTrack/lightning_logs/test_hdc_overfitted_all/mota_pred.txt'
+SAVE_PATH = '/home/namgi/TrackTacular/visualization/hdc/train_medium_noaug_t0.33'
+PRED_FILE = '/home/namgi/TrackTacular/WorldTrack/lightning_logs/test_hdc_medium_noaug_t0.33/mota_pred.txt'
 
 font_size = 50
 font = ImageFont.truetype("Arial.ttf", font_size)
