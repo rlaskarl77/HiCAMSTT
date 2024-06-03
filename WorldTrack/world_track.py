@@ -360,6 +360,60 @@ class WorldTrackModel(pl.LightningModule):
             value = 100 - value if key == 'motp' else value
             self.log(f'track/{key}', value)
 
+    def predict_step(self, batch, batch_idx):
+        item, _ = batch
+        output = self(item)
+
+        center_e = output['instance_center']
+        offset_e = output['instance_offset']
+        size_e = output['instance_size']
+        rot_e = output['instance_rot']
+
+        xy_e, xy_prev_e, scores_e, classes_e, sizes_e, rzs_e = decode.decoder(
+            center_e.sigmoid(), offset_e, size_e, rz_e=rot_e, K=self.max_detections
+        )
+
+        mem_xyz = torch.cat((xy_e, torch.zeros_like(xy_e[..., 0:1])), dim=2)
+        ref_xy = self.vox_util.Mem2Ref(mem_xyz, self.Y, self.Z, self.X)[..., :2]
+
+        mem_xyz_prev = torch.cat((xy_prev_e, torch.zeros_like(xy_e[..., 0:1])), dim=2)
+        ref_xy_prev = self.vox_util.Mem2Ref(mem_xyz_prev, self.Y, self.Z, self.X)[..., :2]
+
+        # detection
+        for frame, xy, score in zip(item['frame'], ref_xy, scores_e):
+            frame = int(frame.item())
+            valid = score > self.conf_threshold
+            self.moda_pred_list.extend([[frame, x.item(), y.item()] for x, y in xy[valid]])
+
+        # tracking
+        for seq_num, frame, bev_det, bev_prev, score, in (
+                zip(item['sequence_num'], item['frame'], ref_xy.cpu(), ref_xy_prev.cpu(),
+                    scores_e.cpu())):
+            frame = int(frame.item())
+            output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
+            
+            mota_pred = [[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
+                            + s.xy.tolist() + [-1] for s in output_stracks]
+            
+            mota_pred = np.array(mota_pred)
+            if len(mota_pred) == 0:
+                mota_pred = np.zeros((0, 11))
+
+            mota_pred = mota_pred[mota_pred[:, 0] == seq_num.item()]
+            self.mota_pred_list.extend(mota_pred.tolist())
+        return self.moda_pred_list, self.mota_pred_list
+
+    def on_predict_epoch_end(self):
+        log_dir = self.trainer.log_dir if self.trainer.log_dir is not None else '../data/cache'
+
+        # detection
+        pred_path = osp.join(log_dir, 'moda_pred.txt')
+        np.savetxt(pred_path, np.array(self.moda_pred_list), '%f', delimiter=' ', newline='\n')
+
+        # tracking
+        pred_path = osp.join(log_dir, 'mota_pred.txt')
+        np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')
+
     def plot_data(self, target, output, batch_idx=0):
         center_e = output['instance_center']
         center_g = target['center_bev']

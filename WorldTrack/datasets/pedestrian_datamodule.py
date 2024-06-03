@@ -75,6 +75,7 @@ class PedestrianDataModule(pl.LightningDataModule):
                 is_train=False,
                 resolution=self.resolution,
                 bounds=self.bounds,
+                inference=True
             )
 
     def train_dataloader(self):
@@ -107,6 +108,6 @@ class PedestrianDataModule(pl.LightningDataModule):
     def predict_dataloader(self):
         return DataLoader(
             self.data_predict,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers
+            batch_size=1,
+            num_workers=1,
         )
