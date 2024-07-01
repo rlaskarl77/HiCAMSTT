@@ -1,0 +1,4 @@
+rtsp://admin:qazwsx123%21@10.32.15.241:554/profile3/media.smp
+rtsp://admin:qazwsx123%21@10.32.15.242:554/profile3/media.smp
+rtsp://admin:qazwsx123%21@10.32.15.243:554/profile3/media.smp
+rtsp://admin:qazwsx123%21@10.32.15.244:554/profile3/media.smp
