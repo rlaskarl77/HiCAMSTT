@@ -89,6 +89,8 @@ class WorldTrackModel(pl.LightningModule):
         self.scene_centroid = torch.tensor(scene_centroid, device=self.device).reshape([1, 3])
         self.vox_util = vox.VoxelUtil(self.Y, self.Z, self.X, scene_centroid=self.scene_centroid, bounds=self.bounds)
         self.save_hyperparameters()
+        
+        self.starter, self.ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
 
 
     def forward(self, item):
@@ -144,6 +146,9 @@ class WorldTrackModel(pl.LightningModule):
             self.temporal_cache_frames[i] = time
 
     def predict_step(self, batch, batch_idx):
+        
+        self.starter.record()
+        
         item = batch
         output = self(item)
 
@@ -169,6 +174,7 @@ class WorldTrackModel(pl.LightningModule):
         # detection
         for frame, xy, score in zip(item['time'], ref_xy, scores_e):
             valid = score > self.conf_threshold
+            frame = int(frame)
             self.moda_pred_list.extend([[frame, x.item(), y.item()] for x, y in xy[valid]])
             self.moda_now.extend([[frame, x.item(), y.item()] for x, y in xy[valid]])
 
@@ -176,6 +182,7 @@ class WorldTrackModel(pl.LightningModule):
         for seq_num, frame, bev_det, bev_prev, score, in (
                 zip(item['sequence_num'], item['time'], ref_xy.cpu(), ref_xy_prev.cpu(),
                     scores_e.cpu())):
+            frame = int(frame)
             output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
             self.mota_pred_list.extend([[seq_num, frame, s.track_id, -1, -1, -1, -1, s.score.item()]
                                         + s.xy.tolist() + [-1]
@@ -186,6 +193,13 @@ class WorldTrackModel(pl.LightningModule):
                                         for s in output_stracks])
         
         self.log_results(item['time'][0])
+        
+        self.ender.record()
+        torch.cuda.synchronize()
+        
+        ellapsed_time = self.starter.elapsed_time(self.ender)
+        print(f'ellapsed_time: {ellapsed_time} ms')
+        
             
             
     def log_results(self, time):
@@ -197,7 +211,6 @@ class WorldTrackModel(pl.LightningModule):
 
         pred_path = osp.join(log_dir, f'{time}_mota.txt')
         np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')
-        
         
             
     def on_test_epoch_end(self):

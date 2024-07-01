@@ -218,7 +218,7 @@ class LoadStreams:
 
     def __len__(self):
         """Return the length of the sources object."""
-        return self.bs  # 1E12 frames = 32 streams at 30 FPS for 30 years
+        return 1E12 # self.bs  # 1E12 frames = 32 streams at 30 FPS for 30 years
     
     def get_image_data(self, images, cameras):
         imgs, intrins, extrins = [], [], []
