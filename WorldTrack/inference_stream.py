@@ -212,7 +212,10 @@ class WorldTrackModel(pl.LightningModule):
         pred_path = osp.join(log_dir, f'{time}_mota.txt')
         np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')
         
-            
+        hdc_data = self.convert_mota_to_hdc_format(self.mota_pred_list, time)
+        hdc_data.save_to_file("result.json")
+
+         
     def on_test_epoch_end(self):
         log_dir = self.trainer.log_dir if self.trainer.log_dir is not None else '../data/cache'
 
@@ -223,6 +226,33 @@ class WorldTrackModel(pl.LightningModule):
         pred_path = osp.join(log_dir, 'mota_pred.txt')
         np.savetxt(pred_path, np.array(self.mota_now), '%f', delimiter=',')
 
+    def convert_mota_to_hdc_format(self, mota_pred_list, time):
+        data = np.asarray(mota_pred_list)
+        data = data[:, (1, 2, 8, 9)]
+        object_list = []
+        for frame, track_id, x, y in data:
+            object_list.append(ObjectType(
+                    type=0,
+                    id=track_id,
+                    action=0,
+                    value=0,
+                    posx=x,
+                    posy=y,
+                    posz=0.0,
+                    sizex=0,
+                    sizey=0,
+                    sizez=0,
+                    execution=0
+                ))  
+
+        hdc_data = Data(
+                time=time,
+                camera=[
+                    Camera(
+                        camera_id="-1",
+                        object_type=object_list)])
+        return hdc_data
+        
 if __name__ == '__main__':
     from lightning.pytorch.cli import LightningCLI
     torch.set_float32_matmul_precision('medium')
