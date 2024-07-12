@@ -12,7 +12,7 @@ from tracking.multitracker import JDETracker
 from utils import vox, basic, decode
 from evaluation.mod import modMetricsCalculator
 from evaluation.mot_bev import mot_metrics
-
+from utils.annotation import ObjectType, Data, Camera
 
 class WorldTrackModel(pl.LightningModule):
     def __init__(
