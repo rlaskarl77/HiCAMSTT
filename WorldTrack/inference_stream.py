@@ -213,7 +213,7 @@ class WorldTrackModel(pl.LightningModule):
         np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')
         
         hdc_data = self.convert_mota_to_hdc_format(self.mota_pred_list, time)
-        hdc_data.save_to_file("result.json")
+        hdc_data.save_to_file(f"{time}.json")
 
          
     def on_test_epoch_end(self):
