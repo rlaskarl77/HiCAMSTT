@@ -228,6 +228,9 @@ class WorldTrackModel(pl.LightningModule):
 
     def convert_mota_to_hdc_format(self, mota_pred_list, time):
         data = np.asarray(mota_pred_list)
+        if len(data) == 0:
+            return Data(time=time, camera=[])
+        
         data = data[:, (1, 2, 8, 9)]
         object_list = []
         for frame, track_id, x, y in data:
