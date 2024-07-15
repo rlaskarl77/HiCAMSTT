@@ -2,7 +2,7 @@ data:
   class_path: datasets.StreamDataModule
   init_args:
     data_dir: "../data/wildtrack/Wildtrack_dataset"
-    sources: "../test_rtsp.txt"
+    sources: "../hdc_rtsp.txt"
 model:
   resolution: [225, 4, 225]  # Y,Z,X
   bounds: [0, 900, 0, 900, 0, 20]  # xmin,xmax,ymin,ymax,zmin,zmax
