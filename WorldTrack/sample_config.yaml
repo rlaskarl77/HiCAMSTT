@@ -1,6 +1,5 @@
 # lightning.pytorch==2.0.2
 seed_everything: 80085
-trainer:
   accelerator: gpu
   strategy:
     class_path: lightning.pytorch.strategies.DDPStrategy
@@ -54,7 +53,7 @@ trainer:
       every_n_epochs: null
       save_on_train_epoch_end: null
   fast_dev_run: false
-  max_epochs: 30
+  max_epochs: 150
   min_epochs: null
   max_steps: -1
   min_steps: null
@@ -67,7 +66,7 @@ trainer:
   val_check_interval: null
   check_val_every_n_epoch: 1
   num_sanity_val_steps: null
-  log_every_n_steps: 5
+  log_every_n_steps: 1
   enable_checkpointing: null
   enable_progress_bar: null
   enable_model_summary: null
@@ -90,17 +89,17 @@ model:
   encoder_name: res18
   learning_rate: 0.001
   resolution:
-  - 120
+  - 225
   - 4
-  - 360
+  - 225
   bounds:
   - 0
-  - 1440
+  - 900
   - 0
-  - 480
+  - 900
   - 0
-  - 200
-  num_cameras: 7
+  - 20
+  num_cameras: 3
   depth:
   - 32
   - 250
@@ -112,14 +111,13 @@ model:
   max_detections: 60
   conf_threshold: 0.5
   num_classes: 1
-  use_temporal_cache: false
-  z_sign: 1
+  use_temporal_cache: true
+  z_sign: -1
   feat2d_dim: 128
-ckpt_path: lightning_logs/version_7/checkpoints/model-epoch=22-val_loss=10.77-val_center=5.19.ckpt
-verbose: true
+ckpt_path: null
 data:
   class_path: datasets.PedestrianDataModule
   init_args:
-    data_dir: /data/namgi/wildtrack/Wildtrack_dataset
-    batch_size: 2
+    data_dir: /131_data/datasets/HiCAMS/20240702
+    batch_size: 1
     num_workers: 4
