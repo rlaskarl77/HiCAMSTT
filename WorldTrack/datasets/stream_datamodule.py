@@ -39,7 +39,7 @@ class StreamDataModule(pl.LightningDataModule):
             base = Wildtrack(self.data_dir)
         elif 'multiviewx' in self.dataset.lower():
             base = MultiviewX(self.data_dir)
-        elif '20240110'or '20240415' in self.dataset.lower():
+        elif '20240110'or '20240415' or '20240702' in self.dataset.lower():
             base = HDC(self.data_dir)
         else:
             raise ValueError(f'Unknown dataset name {self.dataset}')

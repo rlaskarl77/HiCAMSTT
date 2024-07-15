@@ -22,8 +22,8 @@ import torch
 intrinsic_camera_matrix_filenames = ['intr_cam1.xml', 'intr_cam2.xml', 'intr_cam3.xml']
 extrinsic_camera_matrix_filenames = ['extr_cam1.xml', 'extr_cam2.xml', 'extr_cam3.xml']
 
-DATA_PATH = '/131_data/datasets/HiCAMS/20240415'
-SAVE_PATH = '/home/namgi/TrackTacular/visualization/hdc/dataset_rotated'
+DATA_PATH = '/131_data/datasets/HiCAMS/20240702'
+SAVE_PATH = '/home/namgi/TrackTacular/visualization/hdc_new'
 PRED_FILE = 'mota_pred.txt'
 
 CAM1_ROTATED = True
