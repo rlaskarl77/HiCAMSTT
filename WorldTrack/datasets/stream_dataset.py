@@ -141,12 +141,30 @@ class LoadStreams:
                         im = np.zeros(self.shape[i], dtype=np.uint8)
                         print("WARNING ⚠️ Video stream unresponsive, please check your IP camera connection.")
                         cap.open(stream)  # re-open stream if signal was lost
+                    if i == 0: # if cam1, rotate and gray-pad
+                        im = self.rotate_and_rescale(im)
+                        
                     if self.buffer:
                         self.imgs[i].append(im)
                     else:
                         self.imgs[i] = [im]
             else:
                 time.sleep(0.01)  # wait until the buffer is empty
+    
+    def rotate_and_rescale(self, img, size=(1920, 1080)):
+        """
+        Fix image with: rotation, rescaling, and gray-padding.
+        1. Rotate image 90 degrees clockwise.
+        2. Rescale image to the desired size.
+        3. Pad the image with gray color to match the desired size.
+        """
+        h, w = img.shape[:2]
+        re_h, re_w = size[1], w * size[1] // h
+        img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+        img = cv2.resize(img, (re_w, re_h))
+        img = cv2.copyMakeBorder(img, 0, 0, 0, (size[0] - re_w)//2, cv2.BORDER_CONSTANT, value=(128, 128, 128))
+        return img
+        
 
     def close(self):
         """Close stream loader and release resources."""
