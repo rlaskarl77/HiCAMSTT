@@ -178,6 +178,7 @@ def parse_all_anns_to_data(all_anns):
 def plot():
     
     ann_paths = sorted(glob(osp.join(DATA_PATH, 'annotations_positions', '*.json')))
+    # ann_paths = [f for f in ann_paths if int(os.path.basename(f).split('.')[0]) >= 100]
     all_anns = [read_ann(ann_path) for ann_path in ann_paths]
     
     data = parse_all_anns_to_data(all_anns)
