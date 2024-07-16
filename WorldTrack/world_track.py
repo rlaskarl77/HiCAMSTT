@@ -3,6 +3,8 @@ import torch
 import lightning as pl
 import matplotlib.pyplot as plt
 import numpy as np
+import kornia
+import cv2
 
 from models import Segnet, MVDet, Liftnet, Bevformernet, MVDetr
 from models.loss import FocalLoss, compute_rot_loss
@@ -277,6 +279,9 @@ class WorldTrackModel(pl.LightningModule):
         offset_e = output['instance_offset']
         size_e = output['instance_size']
         rot_e = output['instance_rot']
+        
+        
+        self.draw_detection(item, output, batch_idx)
 
         xy_e, xy_prev_e, scores_e, classes_e, sizes_e, rzs_e = decode.decoder(
             center_e.sigmoid(), offset_e, size_e, rz_e=rot_e, K=self.max_detections
@@ -427,6 +432,45 @@ class WorldTrackModel(pl.LightningModule):
         ax2.set_title('center_e')
         plt.tight_layout()
         writer.add_figure(f'plot/{batch_idx}', fig, global_step=self.global_step)
+        plt.close(fig)
+        
+    def draw_detection(self, item, output, batch_idx=0):
+        
+        writer = self.logger.experiment
+        
+        center_e: torch.Tensor = output['instance_center'][0]
+        rgb_cams: torch.Tensor = item['img'][0]
+        pix_T_cams: torch.Tensor = item['intrinsic'][0]
+        cams_T_global: torch.Tensor = item['extrinsic'][0]
+        ref_T_global: torch.Tensor = item['ref_T_global'][0]
+        
+        # print(center_e.shape, rgb_cams.shape, pix_T_cams.shape, cams_T_global.shape, ref_T_global.shape)
+        
+        S = rgb_cams.shape[0]
+        heatmap = center_e.amax(0).sigmoid().squeeze().cpu().unsqueeze(0).unsqueeze(0).repeat(S, 1, 1, 1)
+        heatmap = torch.nn.functional.interpolate(heatmap, size=(900, 900), mode='bilinear', align_corners=False)
+     
+        ref_T_cams = torch.matmul(ref_T_global.detach().cpu().repeat(S, 1, 1), 
+                                  torch.inverse(cams_T_global.detach().cpu()))  # B*S,4,4
+        cams_T_ref = torch.inverse(ref_T_cams) # B*S,4,4
+        pix_T_ref = torch.matmul(pix_T_cams.detach().cpu()[:, :3, :3], cams_T_ref[:, :3, [0, 1, 3]])  # B*S,3,3
+        # ref_T_pix = torch.inverse(pix_T_ref) # B*S,3,3
+        
+        # warp heatmap to image
+        rgb_cams = torch.nn.functional.interpolate(rgb_cams.detach().cpu(), size=(720, 1280), mode='bilinear', align_corners=False)
+        rgb_cams = rgb_cams.permute(0, 2, 3, 1).numpy()
+        warped_heatmap = kornia.geometry.warp_perspective(heatmap, pix_T_ref, (720, 1280)).permute(0, 2, 3, 1).squeeze(-1).numpy()
+        
+        heatmap_colored = plt.get_cmap('jet')(warped_heatmap)[:, :, :, :3]  # Drop the alpha channel
+        mixed = 0.4 * rgb_cams + 0.6 * heatmap_colored
+
+        fig, axes = plt.subplots(1, S, figsize=(12, 8))
+        for cam in range(S):
+            ax = axes[cam]
+            ax.imshow(mixed[cam])
+            ax.set_title(f'cam_{cam+1}')
+        plt.tight_layout()
+        writer.add_figure(f'det/{batch_idx}', fig, global_step=self.global_step)
         plt.close(fig)
 
     def configure_optimizers(self):
