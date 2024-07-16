@@ -1,0 +1,488 @@
+[
+    {
+        "personID": 2,
+        "positionID": 768280,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": 1263,
+                "xmin": 1247,
+                "ymax": 172,
+                "ymin": 83
+            },
+            {
+                "viewNum": 1,
+                "xmax": -1,
+                "xmin": -1,
+                "ymax": -1,
+                "ymin": -1
+            },
+            {
+                "viewNum": 2,
+                "xmax": 1208,
+                "xmin": 1078,
+                "ymax": 501,
+                "ymin": 180
+            }
+        ]
+    },
+    {
+        "personID": 3,
+        "positionID": 762832,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": 1263,
+                "xmin": 1206,
+                "ymax": 178,
+                "ymin": 59
+            },
+            {
+                "viewNum": 1,
+                "xmax": -1,
+                "xmin": -1,
+                "ymax": -1,
+                "ymin": -1
+            },
+            {
+                "viewNum": 2,
+                "xmax": 1208,
+                "xmin": 1118,
+                "ymax": 442,
+                "ymin": 150
+            }
+        ]
+    },
+    {
+        "personID": 24,
+        "positionID": 707583,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": 984,
+                "xmin": 935,
+                "ymax": 212,
+                "ymin": 99
+            },
+            {
+                "viewNum": 1,
+                "xmax": 1917,
+                "xmin": 1861,
+                "ymax": 48,
+                "ymin": 0
+            },
+            {
+                "viewNum": 2,
+                "xmax": 1225,
+                "xmin": 1142,
+                "ymax": 150,
+                "ymin": 0
+            }
+        ]
+    },
+    {
+        "personID": 318,
+        "positionID": 620344,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": 1048,
+                "xmin": 987,
+                "ymax": 270,
+                "ymin": 135
+            },
+            {
+                "viewNum": 1,
+                "xmax": 1819,
+                "xmin": 1749,
+                "ymax": 117,
+                "ymin": 0
+            },
+            {
+                "viewNum": 2,
+                "xmax": 1071,
+                "xmin": 961,
+                "ymax": 162,
+                "ymin": 0
+            }
+        ]
+    },
+    {
+        "personID": 25,
+        "positionID": 578222,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": 1217,
+                "xmin": 1143,
+                "ymax": 293,
+                "ymin": 172
+            },
+            {
+                "viewNum": 1,
+                "xmax": 1873,
+                "xmin": 1760,
+                "ymax": 288,
+                "ymin": 2
+            },
+            {
+                "viewNum": 2,
+                "xmax": 909,
+                "xmin": 812,
+                "ymax": 273,
+                "ymin": 0
+            }
+        ]
+    },
+    {
+        "personID": 12,
+        "positionID": 493625,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": 1251,
+                "xmin": 1173,
+                "ymax": 348,
+                "ymin": 232
+            },
+            {
+                "viewNum": 1,
+                "xmax": 1720,
+                "xmin": 1595,
+                "ymax": 287,
+                "ymin": 20
+            },
+            {
+                "viewNum": 2,
+                "xmax": 753,
+                "xmin": 647,
+                "ymax": 242,
+                "ymin": 0
+            }
+        ]
+    },
+    {
+        "personID": 8,
+        "positionID": 513035,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": 897,
+                "xmin": 834,
+                "ymax": 368,
+                "ymin": 217
+            },
+            {
+                "viewNum": 1,
+                "xmax": -1,
+                "xmin": -1,
+                "ymax": -1,
+                "ymin": -1
+            },
+            {
+                "viewNum": 2,
+                "xmax": 934,
+                "xmin": 910,
+                "ymax": 8,
+                "ymin": 0
+            }
+        ]
+    },
+    {
+        "personID": 15,
+        "positionID": 320669,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": 1155,
+                "xmin": 1095,
+                "ymax": 497,
+                "ymin": 351
+            },
+            {
+                "viewNum": 1,
+                "xmax": 1292,
+                "xmin": 1232,
+                "ymax": 136,
+                "ymin": 0
+            },
+            {
+                "viewNum": 2,
+                "xmax": 517,
+                "xmin": 491,
+                "ymax": 78,
+                "ymin": 0
+            }
+        ]
+    },
+    {
+        "personID": 13,
+        "positionID": 327039,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": 1210,
+                "xmin": 1140,
+                "ymax": 486,
+                "ymin": 348
+            },
+            {
+                "viewNum": 1,
+                "xmax": 1347,
+                "xmin": 1247,
+                "ymax": 216,
+                "ymin": 0
+            },
+            {
+                "viewNum": 2,
+                "xmax": 506,
+                "xmin": 445,
+                "ymax": 128,
+                "ymin": 0
+            }
+        ]
+    },
+    {
+        "personID": 21,
+        "positionID": 314492,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": 1263,
+                "xmin": 1187,
+                "ymax": 486,
+                "ymin": 370
+            },
+            {
+                "viewNum": 1,
+                "xmax": 1340,
+                "xmin": 1247,
+                "ymax": 275,
+                "ymin": 0
+            },
+            {
+                "viewNum": 2,
+                "xmax": 447,
+                "xmin": 372,
+                "ymax": 154,
+                "ymin": 0
+            }
+        ]
+    },
+    {
+        "personID": 20,
+        "positionID": 55169,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": 1263,
+                "xmin": 1191,
+                "ymax": 548,
+                "ymin": 410
+            },
+            {
+                "viewNum": 1,
+                "xmax": -1,
+                "xmin": -1,
+                "ymax": -1,
+                "ymin": -1
+            },
+            {
+                "viewNum": 2,
+                "xmax": 354,
+                "xmin": 274,
+                "ymax": 119,
+                "ymin": 0
+            }
+        ]
+    },
+    {
+        "personID": 11,
+        "positionID": 203545,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": 1049,
+                "xmin": 983,
+                "ymax": 600,
+                "ymin": 452
+            },
+            {
+                "viewNum": 1,
+                "xmax": 1075,
+                "xmin": 983,
+                "ymax": 38,
+                "ymin": 0
+            },
+            {
+                "viewNum": 2,
+                "xmax": -1,
+                "xmin": -1,
+                "ymax": -1,
+                "ymin": -1
+            }
+        ]
+    },
+    {
+        "personID": 151,
+        "positionID": 256067,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": -1,
+                "xmin": -1,
+                "ymax": -1,
+                "ymin": -1
+            },
+            {
+                "viewNum": 1,
+                "xmax": 1233,
+                "xmin": 1159,
+                "ymax": 349,
+                "ymin": 54
+            },
+            {
+                "viewNum": 2,
+                "xmax": 288,
+                "xmin": 225,
+                "ymax": 182,
+                "ymin": 0
+            }
+        ]
+    },
+    {
+        "personID": 17,
+        "positionID": 220998,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": -1,
+                "xmin": -1,
+                "ymax": -1,
+                "ymin": -1
+            },
+            {
+                "viewNum": 1,
+                "xmax": 1197,
+                "xmin": 1077,
+                "ymax": 390,
+                "ymin": 90
+            },
+            {
+                "viewNum": 2,
+                "xmax": 231,
+                "xmin": 129,
+                "ymax": 191,
+                "ymin": 0
+            }
+        ]
+    },
+    {
+        "personID": 18,
+        "positionID": 122879,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": -1,
+                "xmin": -1,
+                "ymax": -1,
+                "ymin": -1
+            },
+            {
+                "viewNum": 1,
+                "xmax": 985,
+                "xmin": 848,
+                "ymax": 375,
+                "ymin": 81
+            },
+            {
+                "viewNum": 2,
+                "xmax": 71,
+                "xmin": 1,
+                "ymax": 147,
+                "ymin": 0
+            }
+        ]
+    },
+    {
+        "personID": 10,
+        "positionID": 190872,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": 983,
+                "xmin": 926,
+                "ymax": 607,
+                "ymin": 444
+            },
+            {
+                "viewNum": 1,
+                "xmax": -1,
+                "xmin": -1,
+                "ymax": -1,
+                "ymin": -1
+            },
+            {
+                "viewNum": 2,
+                "xmax": -1,
+                "xmin": -1,
+                "ymax": -1,
+                "ymin": -1
+            }
+        ]
+    },
+    {
+        "personID": 343,
+        "positionID": 33884,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": -1,
+                "xmin": -1,
+                "ymax": -1,
+                "ymin": -1
+            },
+            {
+                "viewNum": 1,
+                "xmax": -1,
+                "xmin": -1,
+                "ymax": -1,
+                "ymin": -1
+            },
+            {
+                "viewNum": 2,
+                "xmax": 91,
+                "xmin": 0,
+                "ymax": 802,
+                "ymin": 470
+            }
+        ]
+    },
+    {
+        "personID": 344,
+        "positionID": 35400,
+        "views": [
+            {
+                "viewNum": 0,
+                "xmax": -1,
+                "xmin": -1,
+                "ymax": -1,
+                "ymin": -1
+            },
+            {
+                "viewNum": 1,
+                "xmax": -1,
+                "xmin": -1,
+                "ymax": -1,
+                "ymin": -1
+            },
+            {
+                "viewNum": 2,
+                "xmax": -1,
+                "xmin": -1,
+                "ymax": -1,
+                "ymin": -1
+            }
+        ]
+    }
+]

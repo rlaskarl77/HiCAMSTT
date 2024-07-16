@@ -1,0 +1,25 @@
+[
+    {
+        "time": "2024-06-07 15:02:43.000",
+        "camera": [
+            {
+                "camera_id": 3,
+                "object_type": [
+                    {
+                        "type": 0,
+						"id": 31,
+                        "action": 0,
+						"value": 0,
+                        "posx": 1.88,
+                        "posy": 0.0,
+                        "posz": -1.72,
+                        "sizex": 0,
+                        "sizey": 0,
+                        "sizez": 0,
+                        "execution": 0
+                    }
+                ]
+            }
+        ]
+    }
+]

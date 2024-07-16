@@ -207,7 +207,7 @@ dmypy.json
 cython_debug/
 
 # data
-data/
+# data/
 
 # ipynb_checkpoints
 WorldTrack/.ipynb_checkpoints/
@@ -225,3 +225,4 @@ WorldTrack/lightning_logs/
 imgs/
 scripts/
 visualization/
+checkpoints/

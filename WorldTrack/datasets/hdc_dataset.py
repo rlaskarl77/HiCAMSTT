@@ -15,12 +15,12 @@ extrinsic_camera_matrix_filenames = ['extr_cam1.xml', 'extr_cam2.xml', 'extr_cam
 
 
 class HDC(VisionDataset):
-    def __init__(self, root='/131_data/datasets/HiCAMS/20240415'):
+    def __init__(self, root='/131_data/datasets/HiCAMS/20240702'):
         super().__init__(root)
         
         self.__name__ = 'HDC'
         self.img_shape, self.worldgrid_shape = [1080, 1920], [900, 900]  # H,W; N_row,N_col
-        self.num_cam, self.num_frame = 3, 204
+        self.num_cam, self.num_frame = 3, 806
         self.frame_step = 1
         
         self.worldcoord_from_worldgrid_mat = np.array([[1, 0, -450], [0, 1, -450], [0, 0, 1]])
@@ -40,8 +40,8 @@ class HDC(VisionDataset):
         return img_fpaths
 
     def get_worldgrid_from_pos(self, pos):
-        grid_x = pos % 900
-        grid_y = pos // 900
+        grid_x = pos // 900
+        grid_y = pos % 900
         return np.array([grid_x, grid_y], dtype=int)
 
     def get_intrinsic_extrinsic_matrix(self, camera_i):

@@ -1,7 +1,7 @@
 data:
   class_path: datasets.PedestrianDataModule
   init_args:
-    data_dir: "/131_data/datasets/HiCAMS/20240415"
+    data_dir: "/131_data/datasets/HiCAMS/20240702"
 model:
   resolution: [225, 2, 225]  # Y,Z,X
   bounds: [0, 900, 0, 900, 0, 2]  # xmin,xmax,ymin,ymax,zmin,zmax

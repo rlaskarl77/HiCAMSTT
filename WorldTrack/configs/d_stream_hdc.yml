@@ -1,0 +1,14 @@
+data:
+  class_path: datasets.StreamDataModule
+  init_args:
+    data_dir: "../data/HiCAMS/20240702"
+    sources: "../hdc_rtsp.txt"
+model:
+  resolution: [225, 4, 225]  # Y,Z,X
+  bounds: [0, 900, 0, 900, 0, 20]  # xmin,xmax,ymin,ymax,zmin,zmax
+  depth: [32, 250, 3250]
+  z_sign: -1
+  num_cameras: 3
+trainer:
+  max_epochs: 150
+  logger: True

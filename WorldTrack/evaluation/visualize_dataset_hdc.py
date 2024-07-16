@@ -22,8 +22,8 @@ import torch
 intrinsic_camera_matrix_filenames = ['intr_cam1.xml', 'intr_cam2.xml', 'intr_cam3.xml']
 extrinsic_camera_matrix_filenames = ['extr_cam1.xml', 'extr_cam2.xml', 'extr_cam3.xml']
 
-DATA_PATH = '/131_data/datasets/HiCAMS/20240415'
-SAVE_PATH = '/home/namgi/TrackTacular/visualization/hdc/dataset_rotated'
+DATA_PATH = '/131_data/datasets/HiCAMS/20240702'
+SAVE_PATH = '/home/namgi/TrackTacular/visualization/hdc_new'
 PRED_FILE = 'mota_pred.txt'
 
 CAM1_ROTATED = True
@@ -178,6 +178,7 @@ def parse_all_anns_to_data(all_anns):
 def plot():
     
     ann_paths = sorted(glob(osp.join(DATA_PATH, 'annotations_positions', '*.json')))
+    # ann_paths = [f for f in ann_paths if int(os.path.basename(f).split('.')[0]) >= 100]
     all_anns = [read_ann(ann_path) for ann_path in ann_paths]
     
     data = parse_all_anns_to_data(all_anns)
