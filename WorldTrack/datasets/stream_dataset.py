@@ -84,7 +84,7 @@ class LoadStreams:
         sources = Path(sources).read_text().rsplit() if os.path.isfile(sources) else [sources]
         n = len(sources)
         self.bs = n
-        self.fps = [self.max_fps] + [0] * n  # frames per second
+        self.fps = [0] * n + [self.max_fps] # frames per second
         self.frames = [0] * n
         self.threads = [None] * n
         self.caps = [None] * n  # video capture objects
@@ -119,7 +119,7 @@ class LoadStreams:
             
         self.calibration = {}
         self.setup()
-        print('fps:', self.fps)
+        # print('fps:', self.fps)
 
 
     def setup(self):
