@@ -294,33 +294,15 @@ class WorldTrackModel(pl.LightningModule):
         mixed = 0.4 * rgb_cams + 0.6 * heatmap_colored
         
         input_img = (np.concatenate([rgb_cams[0], rgb_cams[1], rgb_cams[2]], axis=1) * 255).astype(np.uint8)
-        input_img = cv2.resize(input_img, (1280, 720))
+        input_img = cv2.resize(input_img, (1920, 360))
         input_img = cv2.cvtColor(input_img, cv2.COLOR_RGB2BGR)
         mosaic = np.concatenate([mixed[0], mixed[1], mixed[2]], axis=1)
         mosaic = (mosaic * 255).astype(np.uint8)
         mosaic = cv2.cvtColor(mosaic, cv2.COLOR_RGB2BGR)
-        mosaic_resized = cv2.resize(mosaic, (1280, 720))
+        mosaic_resized = cv2.resize(mosaic, (1920, 360))
         
         cv2.imshow('Input', input_img)
         cv2.imshow('Mosaic', mosaic_resized)
-
-        fig, axes = plt.subplots(1, S, figsize=(24, 8))
-        for cam in range(S):
-            ax = axes[cam]
-            # ax.imshow(mixed[cam])
-            ax.imshow((rgb_cams[cam] * 255).astype(np.uint8))
-            ax.set_title(f'cam_{cam+1}')
-        plt.tight_layout()
-        
-        # get plot as image
-        fig.canvas.draw()
-        width, height = fig.canvas.get_width_height()
-        img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        img = img.reshape((height, width, 3))
-        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        cv2.imshow('Detection', img)
-        
-        plt.close(fig)
         
         
 if __name__ == '__main__':
