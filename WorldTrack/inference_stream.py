@@ -303,6 +303,7 @@ class WorldTrackModel(pl.LightningModule):
         
         cv2.imshow('Input', input_img)
         cv2.imshow('Mosaic', mosaic_resized)
+        cv2.waitKey(1)
         
         
 if __name__ == '__main__':
