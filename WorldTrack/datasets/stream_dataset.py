@@ -119,6 +119,7 @@ class LoadStreams:
             
         self.calibration = {}
         self.setup()
+        print('fps:', self.fps)
 
 
     def setup(self):
