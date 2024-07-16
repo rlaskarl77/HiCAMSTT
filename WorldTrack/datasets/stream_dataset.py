@@ -158,6 +158,7 @@ class LoadStreams:
         2. Rescale image to the desired size.
         3. Pad the image with gray color to match the desired size.
         """
+        print('rotationg cam1')
         h, w = img.shape[:2]
         re_h, re_w = size[1], w * size[1] // h
         img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
