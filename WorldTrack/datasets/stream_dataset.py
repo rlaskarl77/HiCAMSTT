@@ -160,12 +160,14 @@ class LoadStreams:
         2. Rescale image to the desired size.
         3. Pad the image with gray color to match the desired size.
         """
-        h, w = img.shape[:2]
-        re_h, re_w = size[1], w * size[1] // h
-        img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
-        img = cv2.resize(img, (re_w, re_h))
-        img = cv2.copyMakeBorder(img, 0, 0, 0, (size[0] - re_w)//2, cv2.BORDER_CONSTANT, value=(128, 128, 128))
-        print(f'rotationg cam1, from {(h, w)} to {img.shape}')
+
+        gray = Image.new('RGB', (1920, 1080), (128, 128, 128))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(img)
+        img = img.rotate(-90, expand=True)
+        img = img.resize((int(1080 * 1080 // 1920), 1080))
+        gray.paste(img, ((1920-1080*1080//1920)//2, 0))
+        img = cv2.cvtColor(np.array(gray), cv2.COLOR_RGB2BGR)
         return img
         
 
