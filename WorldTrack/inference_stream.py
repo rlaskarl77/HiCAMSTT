@@ -303,9 +303,8 @@ class WorldTrackModel(pl.LightningModule):
         # get plot as image
         fig.canvas.draw()
         img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-        img = img.transpose(2, 0, 1)
-        
+        # rgb to bgr
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
         cv2.imshow('Detection', img)
         
         plt.close(fig)
