@@ -292,8 +292,10 @@ class WorldTrackModel(pl.LightningModule):
         
         heatmap_colored = plt.get_cmap('jet')(warped_heatmap)[:, :, :, :3]  # Drop the alpha channel
         mixed = 0.4 * rgb_cams + 0.6 * heatmap_colored
+        mixed = np.clip(mixed, 0, 1) * 255
+        mixed = mixed.astype(np.uint8)
 
-        fig, axes = plt.subplots(1, S, figsize=(12, 8))
+        fig, axes = plt.subplots(1, S, figsize=(24, 8))
         for cam in range(S):
             ax = axes[cam]
             ax.imshow(mixed[cam])
@@ -302,8 +304,9 @@ class WorldTrackModel(pl.LightningModule):
         
         # get plot as image
         fig.canvas.draw()
+        width, height = fig.canvas.get_width_height()
         img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        # rgb to bgr
+        img = img.reshape((height, width, 3))
         img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
         cv2.imshow('Detection', img)
         
