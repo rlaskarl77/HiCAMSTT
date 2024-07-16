@@ -1,7 +1,7 @@
 data:
   class_path: datasets.StreamDataModule
   init_args:
-    data_dir: "../data/wildtrack/Wildtrack_dataset"
+    data_dir: "../data/HiCAMS/20240702"
     sources: "../hdc_rtsp.txt"
 model:
   resolution: [225, 4, 225]  # Y,Z,X
