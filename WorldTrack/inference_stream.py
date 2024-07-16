@@ -298,7 +298,8 @@ class WorldTrackModel(pl.LightningModule):
         fig, axes = plt.subplots(1, S, figsize=(24, 8))
         for cam in range(S):
             ax = axes[cam]
-            ax.imshow(mixed[cam])
+            # ax.imshow(mixed[cam])
+            ax.imshow((rgb_cams[cam] * 255).astype(np.uint8))
             ax.set_title(f'cam_{cam+1}')
         plt.tight_layout()
         
