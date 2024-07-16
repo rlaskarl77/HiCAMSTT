@@ -56,6 +56,8 @@ class LoadStreams:
         self.mode = "stream"
         self.vid_stride = vid_stride  # video frame-rate stride
         
+        self.max_fps = 2
+        
         
         self.base = base
         self.num_cam, self.num_frame = base.num_cam, base.num_frame
@@ -82,7 +84,7 @@ class LoadStreams:
         sources = Path(sources).read_text().rsplit() if os.path.isfile(sources) else [sources]
         n = len(sources)
         self.bs = n
-        self.fps = [0] * n  # frames per second
+        self.fps = [self.max_fps] + [0] * n  # frames per second
         self.frames = [0] * n
         self.threads = [None] * n
         self.caps = [None] * n  # video capture objects
@@ -158,12 +160,12 @@ class LoadStreams:
         2. Rescale image to the desired size.
         3. Pad the image with gray color to match the desired size.
         """
-        print('rotationg cam1')
         h, w = img.shape[:2]
         re_h, re_w = size[1], w * size[1] // h
         img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
         img = cv2.resize(img, (re_w, re_h))
         img = cv2.copyMakeBorder(img, 0, 0, 0, (size[0] - re_w)//2, cv2.BORDER_CONSTANT, value=(128, 128, 128))
+        print(f'rotationg cam1, from {(h, w)} to {img.shape}')
         return img
         
 
