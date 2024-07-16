@@ -294,6 +294,8 @@ class WorldTrackModel(pl.LightningModule):
         mixed = 0.4 * rgb_cams + 0.6 * heatmap_colored
         mixed = np.clip(mixed, 0, 1) * 255
         mixed = mixed.astype(np.uint8)
+        
+        cv2.imshow('Input', (np.concatenate([rgb_cams[0], rgb_cams[1], rgb_cams[2]], axis=1) * 255).astype(np.uint8))
 
         fig, axes = plt.subplots(1, S, figsize=(24, 8))
         for cam in range(S):
