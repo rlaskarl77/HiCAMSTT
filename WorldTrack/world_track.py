@@ -26,7 +26,7 @@ class WorldTrackModel(pl.LightningModule):
             depth=(100, 2.0, 25),
             scene_centroid=(0.0, 0.0, 0.0),
             max_detections=60,
-            conf_threshold=0.5,
+            conf_threshold=0.25,
             num_classes=1,
             use_temporal_cache=True,
             z_sign=1,
@@ -354,7 +354,7 @@ class WorldTrackModel(pl.LightningModule):
 
         # tracking
         scale = 1 if self.X == 150 else 0.025  # HACK
-        # scale = 0.01
+        scale = 0.01
         pred_path = osp.join(log_dir, 'mota_pred.txt')
         gt_path = osp.join(log_dir, 'mota_gt.txt')
         np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')

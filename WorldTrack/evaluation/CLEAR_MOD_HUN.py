@@ -28,6 +28,7 @@ def CLEAR_MOD_HUN(gt, det):
     """
     td = 50 / 2.5  # distance threshold
     # td = 100  # distance threshold
+    td = 50
 
     F = int(max(gt[:, 0])) + 1
     N = int(max(det[:, 1])) + 1

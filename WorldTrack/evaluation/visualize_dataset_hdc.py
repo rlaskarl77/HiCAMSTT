@@ -23,7 +23,7 @@ intrinsic_camera_matrix_filenames = ['intr_cam1.xml', 'intr_cam2.xml', 'intr_cam
 extrinsic_camera_matrix_filenames = ['extr_cam1.xml', 'extr_cam2.xml', 'extr_cam3.xml']
 
 DATA_PATH = '/131_data/datasets/HiCAMS/20240702'
-SAVE_PATH = '/home/namgi/TrackTacular/visualization/hdc_new'
+SAVE_PATH = '/home/namgi/TrackTacular/visualization/hdc_cropped'
 PRED_FILE = 'mota_pred.txt'
 
 CAM1_ROTATED = True
@@ -256,6 +256,7 @@ def plot():
         for id in ids:
             id_data = data[data[:, 1] == id]
             id_data = id_data[id_data[:, 0] <= frame]
+            id_data = id_data[id_data[:, 0] > frame-10]
             id_data = id_data[id_data[:, 2] < xlim_max]
             id_data = id_data[id_data[:, 2] > xlim_min]
             id_data = id_data[id_data[:, 3] < ylim_max]
