@@ -55,6 +55,8 @@ class BEVModel(pl.LightningModule):
             raise ValueError(f'Unknown model name {self.model_name}')
 
         self.save_hyperparameters()
+        
+        self.depth_diff = []
 
     def forward(self, item):
         """
@@ -111,8 +113,8 @@ class BEVModel(pl.LightningModule):
         item, target = batch
         output = self(item)
         
-        # if batch_idx < 5:
-        #     self.plot_data_train(item, target, output, batch_idx)
+        if batch_idx < 5:
+            self.plot_data(target, output, batch_idx, 'train')
 
         total_loss, loss_dict = self.loss(target, output)
 
@@ -129,7 +131,7 @@ class BEVModel(pl.LightningModule):
 
         # if batch_idx % 100 == 1:
         #     self.plot_data(target, output, batch_idx)
-        # self.plot_data(target, output, batch_idx)
+        self.plot_data(target, output, batch_idx, 'val')
 
         total_loss, loss_dict = self.loss(target, output)
 
@@ -141,19 +143,59 @@ class BEVModel(pl.LightningModule):
             self.log(f'val/{key}', value, batch_size=B, sync_dist=True)
         return total_loss
 
-    def plot_data(self, target, output, batch_idx=0):
-        center_e = output['instance_center']
-        center_g = target['center_bev']
+    def test_step(self, batch, batch_idx):
+        item, target = batch
+        output = self(item)
+        
+        self.plot_data(target, output, batch_idx, 'test')
+        
+        center_img_e = output['img_center']
+        offset_img_e = output['img_offset']
+        size_img_e = output['img_size']
+        depth_img_e = output['img_depth']
+
+        B, S = target['center_img'].shape[:2]
+        
+        valid_img = basic.pack_seqdim(target['valid_img'], B)
+        center_img_g = basic.pack_seqdim(target['center_img'], B)
+        offset_img_g = basic.pack_seqdim(target['offset_img'], B)
+        size_img_g = basic.pack_seqdim(target['size_img'], B)
+        depth_img_g = basic.pack_seqdim(target['depth_img'], B)
+        
+        depth_diff = torch.abs(torch.log(depth_img_g) - depth_img_e).sum(dim=1, keepdim=True)
+        depth_diff = depth_diff[valid_img]
+        self.depth_diff.extend(depth_diff.cpu().numpy())
+
+    def on_test_epoch_end(self):
+        log_dir = self.trainer.log_dir if self.trainer.log_dir is not None else '../data/cache'
+        
+        self.depth_diff = np.array(self.depth_diff)
+        
+        depth_diff_avg = np.mean(self.depth_diff)
+        self.log('test/depth_diff_avg', depth_diff_avg)
+        self.log('test/log_avg', np.mean(np.log(self.depth_diff)))
+        
+        for scale in [50, 100, 200]:
+            acc = np.sum(self.depth_diff < scale) / len(self.depth_diff)
+            self.log(f'test/depth_diff_{scale}', acc * 100)
+            
+            
+    def plot_data(self, target, output, batch_idx=0, mode='val'):
+
+        B, S = target['center_img'].shape[:2]
+        
+        depth_img_e = output['img_depth']
+        depth_img_g = basic.pack_seqdim(target['depth_img'], B)
 
         # save plots to tensorboard in eval loop
         writer = self.logger.experiment
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 8))
-        ax1.imshow(center_g[-1].amax(0).sigmoid().squeeze().cpu().numpy())
-        ax2.imshow(center_e[-1].amax(0).sigmoid().squeeze().cpu().numpy())
-        ax1.set_title('center_g')
-        ax2.set_title('center_e')
+        ax1.imshow(depth_img_e[-1].detach().amax(0).sigmoid().squeeze().cpu().numpy())
+        ax2.imshow(depth_img_g[-1].detach().amax(0).log().sigmoid().squeeze().cpu().numpy())
+        ax1.set_title('depth_img_e')
+        ax2.set_title('depth_img_g')
         plt.tight_layout()
-        writer.add_figure(f'plot/{batch_idx}', fig, global_step=self.global_step)
+        writer.add_figure(f'plot/{mode}_{batch_idx}', fig, global_step=self.global_step)
         plt.close(fig)
         
         

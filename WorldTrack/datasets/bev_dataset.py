@@ -136,9 +136,9 @@ class BevDataset(VisionDataset):
         center_pts = torch.tensor(center_pts, dtype=torch.float32)
         size_pts = np.stack(((-xmin + xmax), (-ymin + ymax)), axis=1)
         size_pts = torch.tensor(size_pts, dtype=torch.float32)
-        foot_pts = np.stack(((xmin + xmax) / 2, ymin), axis=1)
+        foot_pts = np.stack(((xmin + xmax) / 2, ymax), axis=1)
         foot_pts = torch.tensor(foot_pts, dtype=torch.float32)
-        head_pts = np.stack(((xmin + xmax) / 2, ymax), axis=1)
+        head_pts = np.stack(((xmin + xmax) / 2, ymin), axis=1)
         head_pts = torch.tensor(head_pts, dtype=torch.float32)
 
         for pt_idx, (pid, wh, d) in enumerate(zip(img_pids, size_pts, img_depths)):
