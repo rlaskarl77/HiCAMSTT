@@ -89,7 +89,7 @@ class BEVModel(pl.LightningModule):
 
         # img loss
         center_img_loss = self.center_loss_fn(basic.sigmoid(center_img_e), center_img_g) / S
-        size_img_loss = torch.abs(size_img_g - size_img_e).sum(dim=1, keepdim=True)
+        size_img_loss = torch.abs(torch.log(size_img_g) - size_img_e).sum(dim=1, keepdim=True)
         size_img_loss = basic.reduce_masked_mean(size_img_loss, valid_img)
         offset_img_loss = torch.abs(offset_img_g - offset_img_e).sum(dim=1, keepdim=True)
         offset_img_loss = basic.reduce_masked_mean(offset_img_loss, valid_img)
