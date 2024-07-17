@@ -122,7 +122,7 @@ class BevDataset(VisionDataset):
         W = int(self.data_aug_conf['final_dim'][1] / self.img_downsample)
         center = torch.zeros((3, H, W), dtype=torch.float32)
         offset = torch.zeros((2, H, W), dtype=torch.float32)
-        size = torch.zeros((2, H, W), dtype=torch.float32)
+        size = torch.ones((2, H, W), dtype=torch.float32)
         valid_mask = torch.zeros((1, H, W), dtype=torch.bool)
         person_ids = torch.zeros((1, H, W), dtype=torch.long)
         depth = torch.zeros((1, H, W), dtype=torch.float32)
