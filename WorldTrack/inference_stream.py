@@ -29,7 +29,7 @@ class WorldTrackModel(pl.LightningModule):
             num_cameras=None,
             depth=(100, 2.0, 25),
             scene_centroid=(0.0, 0.0, 0.0),
-            max_detections=60,
+            max_detections=120,
             conf_threshold=0.5,
             num_classes=1,
             use_temporal_cache=True,
@@ -358,7 +358,6 @@ class WorldTrackModel(pl.LightningModule):
             img = rgb_cams[cam_idx].detach().permute(1, 2, 0).cpu().numpy()
             img = np.clip(img, 0, 1)
             img = (img * 255).astype(np.uint8)
-            # img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             img = cv2.resize(img, (1280, 720))
             
             img = Image.fromarray(img)
@@ -380,7 +379,6 @@ class WorldTrackModel(pl.LightningModule):
                     draw.ellipse((x-5, y-5, x+5, y+5), fill=colors[int(id)])
             
             img = np.array(img)
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             
             cams[cam_idx] = img
         
