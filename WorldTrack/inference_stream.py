@@ -30,7 +30,7 @@ class WorldTrackModel(pl.LightningModule):
             depth=(100, 2.0, 25),
             scene_centroid=(0.0, 0.0, 0.0),
             max_detections=300,
-            conf_threshold=0.25,
+            conf_threshold=0.3,
             num_classes=1,
             use_temporal_cache=True,
             z_sign=1,
