@@ -2,6 +2,8 @@ import os.path as osp
 import torch
 import lightning as pl
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from PIL import Image, ImageDraw
 import numpy as np
 from kornia.geometry import warp_perspective
 import cv2
@@ -153,6 +155,8 @@ class WorldTrackModel(pl.LightningModule):
         
         item = batch
         output = self(item)
+        
+        self.moda_now, self.mota_now = [], []
 
         # ref_T_global = item['ref_T_global']
         # global_T_ref = torch.inverse(ref_T_global)
@@ -201,6 +205,8 @@ class WorldTrackModel(pl.LightningModule):
         
         self.log_results(item['time'][0])
         
+        self.draw_prediction(item, output, self.mota_now)
+        
         self.ender.record()
         torch.cuda.synchronize()
         
@@ -219,7 +225,7 @@ class WorldTrackModel(pl.LightningModule):
         pred_path = osp.join(log_dir, f'{time}_mota.txt')
         np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')
         
-        hdc_data = self.convert_mota_to_hdc_format(self.mota_pred_list, time)
+        hdc_data = self.convert_mota_to_hdc_format(self.mota_now, time)
         hdc_data.save_to_file(f"{time}.json")
 
          
@@ -304,6 +310,86 @@ class WorldTrackModel(pl.LightningModule):
         cv2.imshow('Input', input_img)
         cv2.imshow('Mosaic', mosaic_resized)
         cv2.waitKey(1)
+    
+    def draw_prediction(self, item, output, mota_now):
+        
+        writer = self.logger.experiment
+        
+        center_e: torch.Tensor = output['instance_center'][0]
+        rgb_cams: torch.Tensor = item['img'][0]
+        pix_T_cams: torch.Tensor = item['intrinsic'][0]
+        cams_T_global: torch.Tensor = item['extrinsic'][0]
+        ref_T_global: torch.Tensor = item['ref_T_global'][0]
+        
+        # print(center_e.shape, rgb_cams.shape, pix_T_cams.shape, cams_T_global.shape, ref_T_global.shape)
+        
+        S = rgb_cams.shape[0]
+     
+        ref_T_cams = torch.matmul(ref_T_global.detach().cpu().repeat(S, 1, 1), 
+                                  torch.inverse(cams_T_global.detach().cpu()))  # S,4,4
+        cams_T_ref = torch.inverse(ref_T_cams) # B*S,4,4
+        pix_T_ref = torch.matmul(pix_T_cams.detach().cpu()[:, :3, :3], cams_T_ref[:, :3, [0, 1, 3]])  # S,3,3
+        
+        mota_data = np.asarray(mota_now)
+        
+        mota_data = mota_data[:, (1, 2, 8, 9)]
+        mota_world = torch.from_numpy(np.concatenate([mota_data[:, 2:], 
+                                       np.ones((mota_data.shape[0], 1))], axis=1)).float() # B,3
+        mota_world = mota_world.unsqueeze(0).repeat(S, 1, 1).unsqueeze(-1) # S,B,3,1
+        
+        pix_T_ref = pix_T_ref.unsqueeze(1).repeat(1, mota_world.shape[1], 1, 1) # S,B,3,3
+        
+        mota_pix = torch.matmul(pix_T_ref, mota_world).squeeze(-1) # S,B,3
+        mota_pix = mota_pix[:, :, :2] / mota_pix[:, :, 2].unsqueeze(-1) # S,B,2
+        
+        mota_data = torch.from_numpy(mota_data).float()
+        mota_data = mota_data.unsqueeze(0).repeat(S, 1, 1) # S,B,4
+        mota_data = torch.cat([mota_data, mota_pix], dim=-1) # S,B,6
+        
+        ids = mota_data[:, :, 2].unique()
+        
+        colors = {int(id): mcolors.XKCD_COLORS[list(mcolors.XKCD_COLORS.keys())[int(idx)]]
+                  for idx, id in enumerate(ids.flatten().tolist())}
+        
+        cams = {}
+        
+        for cam_idx in range(S):
+            img = rgb_cams[cam_idx].detach().permute(1, 2, 0).cpu().numpy()
+            img = np.clip(img, 0, 1)
+            img = (img * 255).astype(np.uint8)
+            # img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            img = cv2.resize(img, (1280, 720))
+            
+            img = Image.fromarray(img)
+            draw = ImageDraw.Draw(img)
+            
+            for id in ids:
+                data = mota_data[cam_idx, mota_data[cam_idx, :, 2] == id]
+                for i in range(data.shape[0]):
+                    x, y = data[i, 4], data[i, 5]
+                    
+                    re_x, re_y = data[i, 2], data[i, 3]
+                    re_x, re_y = (re_x-450)/100., (re_y-450)/100.
+                    
+                    if x < 0 or x > 1280 or y < 0 or y > 720:
+                        continue
+                    
+                    draw.text((x, y), f'person{int(id)}', fill=colors[int(id)])
+                    draw.text((x, y+10), f'(x={re_x:.2f}m, y={re_y:.2f}m)', fill=colors[int(id)])
+                    draw.ellipse((x-5, y-5, x+5, y+5), fill=colors[int(id)])
+            
+            img = np.array(img)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            
+            cams[cam_idx] = img
+        
+        # draw mosaic
+        mosaic = np.concatenate([cams[0], cams[1], cams[2]], axis=1)
+        mosaic = cv2.cvtColor(mosaic, cv2.COLOR_RGB2BGR)
+        
+        cv2.imshow('Mosaic', mosaic)
+        cv2.waitKey(1)
+        
         
         
 if __name__ == '__main__':

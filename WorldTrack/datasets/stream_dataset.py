@@ -43,7 +43,7 @@ class LoadStreams:
             base,
             sources="file.streams", 
             vid_stride=1, 
-            buffer=True,
+            buffer=False,
             resolution=(160, 4, 250),
             bounds=(-500, 500, -320, 320, 0, 2),
             final_dim: tuple = (720, 1280),
