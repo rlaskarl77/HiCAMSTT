@@ -374,9 +374,9 @@ class WorldTrackModel(pl.LightningModule):
                     if x < 0 or x > 1280 or y < 0 or y > 720:
                         continue
                     
-                    draw.text((x, y), f'person{int(id)}', fill=colors[int(id)])
-                    draw.text((x, y+10), f'(x={re_x:.2f}m, y={re_y:.2f}m)', fill=colors[int(id)])
-                    draw.ellipse((x-5, y-5, x+5, y+5), fill=colors[int(id)])
+                    draw.text((x, y), f'person{int(id):03d}', fill='red')
+                    draw.text((x, y+10), f'(x={re_x:.2f}m, y={re_y:.2f}m)', fill='red')
+                    draw.ellipse((x-5, y-5, x+5, y+5), fill='red')
             
             img = np.array(img)
             
