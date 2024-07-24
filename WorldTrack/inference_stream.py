@@ -30,7 +30,7 @@ class WorldTrackModel(pl.LightningModule):
             depth=(100, 2.0, 25),
             scene_centroid=(0.0, 0.0, 0.0),
             max_detections=300,
-            conf_threshold=0.3,
+            conf_threshold=0.35,
             num_classes=1,
             use_temporal_cache=True,
             z_sign=1,
@@ -374,9 +374,9 @@ class WorldTrackModel(pl.LightningModule):
                     if x < 0 or x > 1280 or y < 0 or y > 720:
                         continue
                     
-                    draw.text((x, y), f'person{int(id):03d}', fill='red')
-                    draw.text((x, y+10), f'(x={re_x:.2f}m, y={re_y:.2f}m)', fill='red')
-                    draw.ellipse((x-5, y-5, x+5, y+5), fill='red')
+                    draw.text((x, y), f'person{int(id):03d}', fill='blue')
+                    draw.text((x, y+10), f'(x={re_x:.2f}m, y={re_y:.2f}m)', fill='blue')
+                    draw.ellipse((x-5, y-5, x+5, y+5), fill='blue')
             
             img = np.array(img)
             
