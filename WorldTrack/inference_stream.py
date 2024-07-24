@@ -161,10 +161,10 @@ class WorldTrackModel(pl.LightningModule):
         # ref_T_global = item['ref_T_global']
         # global_T_ref = torch.inverse(ref_T_global)
         
-        try:
-            self.draw_detection(item, output, batch_idx)
-        except Exception as e:
-            print(e)
+        # try:
+        #     self.draw_detection(item, output, batch_idx)
+        # except Exception as e:
+        #     print(e)
 
         # output on bev plane
         center_e = output['instance_center']
@@ -205,7 +205,10 @@ class WorldTrackModel(pl.LightningModule):
         
         self.log_results(item['time'][0])
         
-        self.draw_prediction(item, output, self.mota_now)
+        try:
+            self.draw_prediction(item, output, self.mota_now)
+        except Exception as e:
+            print(e)
         
         self.ender.record()
         torch.cuda.synchronize()
@@ -312,8 +315,6 @@ class WorldTrackModel(pl.LightningModule):
         cv2.waitKey(1)
     
     def draw_prediction(self, item, output, mota_now):
-        
-        writer = self.logger.experiment
         
         center_e: torch.Tensor = output['instance_center'][0]
         rgb_cams: torch.Tensor = item['img'][0]
