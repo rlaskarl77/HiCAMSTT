@@ -113,7 +113,8 @@ class PedestrianDataset(VisionDataset):
                         self.pid_dict[pedestrian['personID']] = len(self.pid_dict)
                     num_world_bbox += 1
                     world_pts.append((grid_x, grid_y))
-                    world_pids.append(pedestrian['personID'])
+                    # world_pids.append(pedestrian['personID'])
+                    world_pids.append(self.pid_dict[pedestrian['personID']])
                     for cam in range(self.num_cam):
                         if itemgetter('xmin', 'ymin', 'xmax', 'ymax')(pedestrian['views'][cam]) != (-1, -1, -1, -1):
                             img_bboxs[cam].append(itemgetter('xmin', 'ymin', 'xmax', 'ymax')
@@ -126,12 +127,16 @@ class PedestrianDataset(VisionDataset):
                 for cam in range(self.num_cam):
                     # x1y1x2y2
                     self.imgs_gt[frame][cam] = (torch.tensor(img_bboxs[cam]), torch.tensor(img_pids[cam]))
+                    
+        print(f'Number of frames: {num_frame}, Number of world bounding boxes: {num_world_bbox}, '
+              f'Number of image bounding boxes: {num_imgs_bbox}, Number of unique pids: {len(self.pid_dict)}')
 
     def get_bev_gt(self, mem_pts, mem_pts_prev, pids, pids_pre):
         center = torch.zeros((1, self.Y, self.X), dtype=torch.float32)
         valid_mask = torch.zeros((1, self.Y, self.X), dtype=torch.bool)
         offset = torch.zeros((4, self.Y, self.X), dtype=torch.float32)
-        person_ids = torch.zeros((1, self.Y, self.X), dtype=torch.long)
+        # person_ids = torch.zeros((1, self.Y, self.X), dtype=torch.long)
+        person_ids = torch.full((1, self.Y, self.X), -1, dtype=torch.int32)
 
         prev_pts = dict(zip(pids_pre.int().tolist(), mem_pts_prev[0]))
 
@@ -148,7 +153,7 @@ class PedestrianDataset(VisionDataset):
             offset[:2, ct_int[1], ct_int[0]] = ct - ct_int
             person_ids[:, ct_int[1], ct_int[0]] = pid
 
-            if pid in pids_pre:
+            if pid in pids_pre and False:
                 t_off = prev_pts[pid.int().item()][:2] - ct_int
                 if t_off.abs().max() > 15:
                     continue
@@ -163,7 +168,7 @@ class PedestrianDataset(VisionDataset):
         offset = torch.zeros((2, H, W), dtype=torch.float32)
         size = torch.zeros((2, H, W), dtype=torch.float32)
         valid_mask = torch.zeros((1, H, W), dtype=torch.bool)
-        person_ids = torch.zeros((1, H, W), dtype=torch.long)
+        person_ids = torch.full((1, H, W), -1, dtype=torch.int32)
 
         xmin = (img_pts[:, 0] * sx - crop[0]) / self.img_downsample
         ymin = (img_pts[:, 1] * sy - crop[1]) / self.img_downsample
@@ -328,15 +333,33 @@ class PedestrianDataset(VisionDataset):
 
     def __getitem__(self, index):
         
-        if self.inference:
-            return self.__getitem_infer__(index)
+        # if self.inference:
+        #     return self.__getitem_infer__(index)
+        
         frame = list(self.world_gt.keys())[index]
         pre_frame = list(self.world_gt.keys())[max(index - 1, 0)]
+        
+        random_index = np.random.randint(0, len(self.world_gt.keys()))
+        while random_index == index or random_index == index - 1:
+            random_index = np.random.randint(0, len(self.world_gt.keys()))
+        
+        random_frame = list(self.world_gt.keys())[random_index]
+        pre_random_frame = list(self.world_gt.keys())[max(random_index - 1, 0)]
+        
         cameras = list(range(self.num_cam))
 
         # images
         imgs, intrins, extrins, centers_img, offsets_img, sizes_img, pids_img, valids_img \
             = self.get_image_data(frame, cameras)
+        
+        imgs_prev, _, _, _, _, _, _, _ \
+            = self.get_image_data(pre_frame, cameras)
+            
+        imgs_rand, _, _, _, _, _, _, _ \
+            = self.get_image_data(random_frame, cameras)
+        
+        imgs_prev_rand, _, _, _, _, _, _, _ \
+            = self.get_image_data(pre_random_frame, cameras)
 
         worldcoord_from_worldgrid = torch.eye(4)
         worldcoord_from_worldgrid2d = torch.tensor(self.base.worldcoord_from_worldgrid_mat, dtype=torch.float32)
@@ -346,6 +369,9 @@ class PedestrianDataset(VisionDataset):
 
         worldgrid_pts_org, world_pids = self.world_gt[frame]
         worldgrid_pts_pre, world_pid_pre = self.world_gt[pre_frame]
+        
+        worldgrid_pts_rand, world_pids_rand = self.world_gt[random_frame]
+        worldgrid_pts_pre_rand, world_pid_pre_rand = self.world_gt[pre_random_frame]
 
         worldgrid_pts = torch.cat((worldgrid_pts_org, torch.zeros_like(worldgrid_pts_org[:, 0:1])), dim=1).unsqueeze(0)
         worldgrid_pts_pre = torch.cat((worldgrid_pts_pre, torch.zeros_like(worldgrid_pts_pre[:, 0:1])), dim=1)
@@ -363,6 +389,11 @@ class PedestrianDataset(VisionDataset):
         mem_pts = self.vox_util.Ref2Mem(worldgrid_pts, self.Y, self.Z, self.X)
         mem_pts_pre = self.vox_util.Ref2Mem(worldgrid_pts_pre.unsqueeze(0), self.Y, self.Z, self.X)
         center_bev, valid_bev, pid_bev, offset_bev = self.get_bev_gt(mem_pts, mem_pts_pre,  world_pids, world_pid_pre)
+        
+        _, _, pid_bev_prev, _ = self.get_bev_gt(mem_pts_pre, mem_pts_pre, world_pid_pre, world_pid_pre)
+        _, _, pid_bev_rand, _ = self.get_bev_gt(mem_pts, mem_pts_pre, world_pids_rand, world_pids_rand)
+        _, _, pid_bev_prev_rand, _ = self.get_bev_gt(mem_pts_pre, mem_pts_pre, world_pid_pre_rand, world_pid_pre_rand)
+        
 
         grid_gt = torch.zeros((self.max_objects, 3), dtype=torch.long)
         grid_gt[:worldgrid_pts.shape[1], :2] = worldgrid_pts_org
@@ -384,6 +415,9 @@ class PedestrianDataset(VisionDataset):
             'frame': frame // self.base.frame_step,
             'sequence_num': int(0),
             'grid_gt': grid_gt,
+            'img_prev': imgs_prev,  # S,3,H,W
+            'img_rand': imgs_rand,  # S,3,H,W
+            'img_prev_rand': imgs_prev_rand,  # S,3,H,W
         }
         target = {
             # bev
@@ -396,6 +430,9 @@ class PedestrianDataset(VisionDataset):
             'offset_img': offsets_img,  # S,2,H/8,W/8
             'size_img': sizes_img,  # S,2,H/8,W/8
             'valid_img': valids_img,  # S,1,H/8,W/8
-            'pid_img': pids_img  # S,1,H/8,W/8
+            'pid_img': pids_img,  # S,1,H/8,W/8
+            'pid_bev_prev': pid_bev_prev,  # 1,Y,X
+            'pid_bev_rand': pid_bev_rand,  # 1,Y,X
+            'pid_bev_prev_rand': pid_bev_prev_rand,  # 1,Y,X
         }
         return item, target
