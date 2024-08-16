@@ -20,7 +20,7 @@ class ObjectType:
 @dataclass
 class Camera:
     camera_id: str
-    object_type: List[ObjectType]
+    objects: List[ObjectType]
 
 @dataclass
 class Data:
@@ -38,6 +38,6 @@ class Data:
     def from_json(json_str: str) -> 'Data':
         data_dict = json.loads(json_str)
         for camera in data_dict['camera']:
-            camera['object_type'] = [ObjectType(**obj) for obj in camera['object_type']]
+            camera['objects'] = [ObjectType(**obj) for obj in camera['objects']]
         data_dict['camera'] = [Camera(**camera) for camera in data_dict['camera']]
         return Data(**data_dict)
