@@ -51,8 +51,10 @@ class PedestrianDataset(VisionDataset):
 
         if self.is_train:
             frame_range = range(0, int(self.num_frame * 0.9))
-        else:
+        elif not inference:
             frame_range = range(int(self.num_frame * 0.9), self.num_frame)
+        else:
+            frame_range = range(self.num_frame)
 
         self.img_fpaths = self.base.get_image_fpaths(frame_range)
         
@@ -65,6 +67,12 @@ class PedestrianDataset(VisionDataset):
             self.prepare_gt()
         
         else:
+            self.world_gt = {}
+            self.imgs_gt = {}
+            self.pid_dict = {}
+            self.download(frame_range)
+            self.gt_fpath = os.path.join(self.root, 'gt.txt')
+            self.prepare_gt()
             self.datetime = None
             self.fps = 2 # wildtrack
             self.time_delta = timedelta(milliseconds=1000 / self.fps)
@@ -300,7 +308,7 @@ class PedestrianDataset(VisionDataset):
         return len(self.world_gt.keys())
     
     def __getitem_infer__(self, index):
-        frame = list(self.img_fpaths[0].keys())[index]
+        frame = list(self.world_gt.keys())[index]
         cameras = list(range(self.num_cam))
 
         # images
@@ -329,6 +337,7 @@ class PedestrianDataset(VisionDataset):
             'grid_gt': grid_gt,
             'time': [time],
         }
+        # print(item)
 
         target = {}
 
