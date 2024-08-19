@@ -244,7 +244,7 @@ class WorldTrackModel(pl.LightningModule):
                 time=time,
                 camera=[
                     Camera(
-                        camera_id="-1",
+                        camera_id=-1,
                         objects=object_list)])
         return hdc_data
 
