@@ -1,3 +1,4 @@
+from datetime import datetime
 import os.path as osp
 import torch
 import lightning as pl
@@ -10,7 +11,7 @@ from tracking.multitracker import JDETracker
 from utils import vox, basic, decode
 from evaluation.mod import modMetricsCalculator
 from evaluation.mot_bev import mot_metrics
-
+from utils.annotation import ObjectType, Data, Camera
 
 class WorldTrackModel(pl.LightningModule):
     def __init__(
@@ -56,6 +57,10 @@ class WorldTrackModel(pl.LightningModule):
         self.moda_gt_list, self.moda_pred_list = [], []
         self.mota_gt_list, self.mota_pred_list = [], []
         self.mota_seq_gt_list, self.mota_seq_pred_list = [], []
+        
+        
+        self.moda_now, self.mota_now = [], []
+        
         self.frame = 0
         self.test_tracker = JDETracker(conf_thres=self.conf_threshold)
 
@@ -138,138 +143,22 @@ class WorldTrackModel(pl.LightningModule):
             self.temporal_cache[i[0]] = feat
             self.temporal_cache_frames[i[0]] = frame
 
-    def loss(self, target, output):
-        center_e = output['instance_center']
-        offset_e = output['instance_offset']
-        size_e = output['instance_size']
-        rot_e = output['instance_rot']
 
-        center_img_e = output['img_center']
-
-        valid_g = target['valid_bev']
-        center_g = target['center_bev']
-        offset_g = target['offset_bev']
-
-        B, S = target['center_img'].shape[:2]
-        center_img_g = basic.pack_seqdim(target['center_img'], B)
-
-        center_loss = self.center_loss_fn(basic.sigmoid(center_e), center_g)
-        offset_loss = torch.abs(offset_e[:, :2] - offset_g[:, :2]).sum(dim=1, keepdim=True)
-        offset_loss = basic.reduce_masked_mean(offset_loss, valid_g)
-        tracking_loss = torch.nn.functional.smooth_l1_loss(
-            offset_e[:, 2:], offset_g[:, 2:], reduction='none').sum(dim=1, keepdim=True)
-        tracking_loss = basic.reduce_masked_mean(tracking_loss, valid_g)
-
-        if 'size_bev' in target:
-            size_g = target['size_bev']
-            rotbin_g = target['rotbin_bev']
-            rotres_g = target['rotres_bev']
-            size_loss = torch.abs(size_e - size_g).sum(dim=1, keepdim=True)
-            size_loss = basic.reduce_masked_mean(size_loss, valid_g)
-            rot_loss = compute_rot_loss(rot_e, rotbin_g, rotres_g, valid_g)
-        else:
-            size_loss = torch.tensor(0.)
-            rot_loss = torch.tensor(0.)
-
-        center_factor = 1 / torch.exp(self.model.center_weight)
-        center_loss_weight = center_factor * center_loss
-        center_uncertainty_loss = self.model.center_weight
-
-        offset_factor = 1 / torch.exp(self.model.offset_weight)
-        offset_loss_weight = offset_factor * offset_loss
-        offset_uncertainty_loss = self.model.offset_weight
-
-        size_factor = 1 / torch.exp(self.model.size_weight)
-        size_loss_weight = size_factor * size_loss
-        size_uncertainty_loss = self.model.size_weight
-
-        rot_factor = 1 / torch.exp(self.model.rot_weight)
-        rot_loss_weight = rot_factor * rot_loss
-        rot_uncertainty_loss = self.model.rot_weight
-
-        tracking_factor = 1 / torch.exp(self.model.tracking_weight)
-        tracking_loss_weight = tracking_factor * tracking_loss
-        tracking_uncertainty_loss = self.model.tracking_weight
-
-        # img loss
-        center_img_loss = self.center_loss_fn(basic.sigmoid(center_img_e), center_img_g) / S
-
-        loss_dict = {
-            'center_loss': 10 * center_loss,
-            'offset_loss': 10 * offset_loss,
-            'tracking_loss': tracking_loss,
-            'size_loss': size_loss,
-            'rot_loss': rot_loss,
-            'center_img': center_img_loss,
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, max_lr=self.learning_rate, total_steps=self.trainer.estimated_stepping_batches,
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {"scheduler": scheduler, "interval": "step"}
         }
-        loss_weight_dict = {
-            'center_loss': 10 * center_loss_weight,
-            'offset_loss': 10 * offset_loss_weight,
-            'tracking_loss': tracking_loss_weight,
-            'size_loss': size_loss_weight,
-            'rot_loss': rot_loss_weight,
-            'center_img': center_img_loss,
-        }
-        stats_dict = {
-            'center_uncertainty_loss': center_uncertainty_loss,
-            'offset_uncertainty_loss': offset_uncertainty_loss,
-            'tracking_uncertainty_loss': tracking_uncertainty_loss,
-            'size_uncertainty_loss': size_uncertainty_loss,
-            'rot_uncertainty_loss': rot_uncertainty_loss,
-        }
-        
-        
-        if self.model_name == 'MvDetr':
-            # geometric align loss
-            projected_bev = basic.pack_seqdim(output['projected_bev_center'], B)
-            projected_bev = basic.sigmoid(projected_bev)
-            img_center = basic.pack_seqdim(output['img_center'], B)
-            img_center = basic.sigmoid(img_center)
-            
-            geometric_loss = self.geometric_loss_fn(projected_bev, img_center)
-            
-            loss_dict['geometric_loss'] = geometric_loss
-            loss_weight_dict['geometric_loss'] = geometric_loss * 0.01    
-        
-        total_loss = sum(loss_weight_dict.values()) + sum(stats_dict.values())
 
-        return total_loss, loss_dict
 
-    def training_step(self, batch, batch_idx):
+    def predict_step(self, batch, batch_idx):
+        
         item, target = batch
         output = self(item)
-
-        total_loss, loss_dict = self.loss(target, output)
-
-        B = item['img'].shape[0]
-        self.log('train_loss', total_loss, prog_bar=True, batch_size=B)
-        for key, value in loss_dict.items():
-            self.log(f'train/{key}', value, batch_size=B)
-
-        return total_loss
-
-    def validation_step(self, batch, batch_idx):
-        item, target = batch
-        output = self(item)
-
-        if batch_idx % 100 == 1:
-            self.plot_data(target, output, batch_idx)
-
-        total_loss, loss_dict = self.loss(target, output)
-
-        B = item['img'].shape[0]
-        self.log('val_loss', total_loss, batch_size=B, sync_dist=True)
-        self.log('val_center', loss_dict['center_loss'], batch_size=B, sync_dist=True)
-        for key, value in loss_dict.items():
-            self.log(f'val/{key}', value, batch_size=B, sync_dist=True)
-        return total_loss
-
-    def test_step(self, batch, batch_idx):
-        item, _ = batch
-        output = self(item)
-
-        # ref_T_global = item['ref_T_global']
-        # global_T_ref = torch.inverse(ref_T_global)
 
         # output on bev plane
         center_e = output['instance_center']
@@ -286,62 +175,78 @@ class WorldTrackModel(pl.LightningModule):
 
         mem_xyz_prev = torch.cat((xy_prev_e, torch.zeros_like(xy_e[..., 0:1])), dim=2)
         ref_xy_prev = self.vox_util.Mem2Ref(mem_xyz_prev, self.Y, self.Z, self.X)[..., :2]
-
+        
+        self.moda_now = []
+        self.mota_now = []
+        
         # detection
-        for frame, grid_gt, xy, score in zip(item['frame'], item['grid_gt'], ref_xy, scores_e):
-            frame = int(frame.item())
+        for frame, xy, score in zip(item['frame'], ref_xy, scores_e):
             valid = score > self.conf_threshold
-            
+            frame = int(frame)
             self.moda_pred_list.extend([[frame, x.item(), y.item()] for x, y in xy[valid]])
+            self.moda_now.extend([[frame, x.item(), y.item()] for x, y in xy[valid]])
 
         # tracking
-        for seq_num, frame, grid_gt, bev_det, bev_prev, score, in (
-                zip(item['sequence_num'], item['frame'], item['grid_gt'], ref_xy.cpu(), ref_xy_prev.cpu(),
+        for seq_num, frame, bev_det, bev_prev, score, in (
+                zip(item['sequence_num'], item['frame'], ref_xy.cpu(), ref_xy_prev.cpu(),
                     scores_e.cpu())):
-            frame = int(frame.item())
+            frame = int(frame)
+            seq_num = int(seq_num)
             output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
-
-            self.mota_pred_list.extend([[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
+            self.mota_pred_list.extend([[seq_num, frame, s.track_id, -1, -1, -1, -1, s.score.item()]
                                         + s.xy.tolist() + [-1]
                                         for s in output_stracks])
-
-    def on_test_epoch_end(self):
+            
+            self.mota_now.extend([[seq_num, frame, s.track_id, -1, -1, -1, -1, s.score.item()]
+                                        + s.xy.tolist() + [-1]
+                                        for s in output_stracks])
+        
+        self.log_results(item['time'][0][0])
+            
+    def log_results(self, time):
         log_dir = self.trainer.log_dir if self.trainer.log_dir is not None else '../data/cache'
+        
+        # pred_path = osp.join(log_dir, f'{time}_moda.txt')
+        # np.savetxt(pred_path, np.array(self.moda_now), '%f')
 
-        # detection
-        pred_path = osp.join(log_dir, 'moda_pred.txt')
-        np.savetxt(pred_path, np.array(self.moda_pred_list), '%f')
+        # pred_path = osp.join(log_dir, f'{time}_mota.txt')
+        # np.savetxt(pred_path, np.array(self.mota_now), '%f', delimiter=',')
+        
+        hdc_data = self.convert_mota_to_hdc_format(self.mota_now, time)
+        pred_path = osp.join(log_dir, f"SNU_{datetime.fromisoformat(time).strftime('%Y_%m_%d-%H-%M-%S-%f')[:-3]}_1.json")
+        hdc_data.save_to_file(pred_path)
 
-        # tracking
-        scale = 1 if self.X == 150 else 0.025  # HACK
-        pred_path = osp.join(log_dir, 'mota_pred.txt')
-        np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')
+    def convert_mota_to_hdc_format(self, mota_pred_list, time):
+        data = np.asarray(mota_pred_list)
+        if len(data) == 0:
+            return Data(time=time, camera=[])
+        
+        data = data[:, (1, 2, 8, 9)]
+        object_list = []
+        
+        scale = 40 # wt, mvx : 40, hdc : 100
+        for frame, track_id, x, y in data:
+            object_list.append(ObjectType(
+                    type=0,
+                    id=track_id,
+                    action=0,
+                    value=0,
+                    posx=x/scale,
+                    posy=0.,
+                    posz=y/scale,
+                    sizex=0,
+                    sizey=0,
+                    sizez=0,
+                    execution=0
+                ))  
 
-    def plot_data(self, target, output, batch_idx=0):
-        center_e = output['instance_center']
-        center_g = target['center_bev']
-
-        # save plots to tensorboard in eval loop
-        writer = self.logger.experiment
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 8))
-        ax1.imshow(center_g[-1].amax(0).sigmoid().squeeze().cpu().numpy())
-        ax2.imshow(center_e[-1].amax(0).sigmoid().squeeze().cpu().numpy())
-        ax1.set_title('center_g')
-        ax2.set_title('center_e')
-        plt.tight_layout()
-        writer.add_figure(f'plot/{batch_idx}', fig, global_step=self.global_step)
-        plt.close(fig)
-
-    def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            optimizer, max_lr=self.learning_rate, total_steps=self.trainer.estimated_stepping_batches,
-        )
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {"scheduler": scheduler, "interval": "step"}
-        }
-
+        hdc_data = Data(
+                time=time,
+                camera=[
+                    Camera(
+                        camera_id=-1,
+                        objects=object_list)])
+        return hdc_data
 
 if __name__ == '__main__':
     from lightning.pytorch.cli import LightningCLI

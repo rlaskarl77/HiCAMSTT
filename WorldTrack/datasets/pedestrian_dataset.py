@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 import os
 import json
 from operator import itemgetter
@@ -50,8 +51,10 @@ class PedestrianDataset(VisionDataset):
 
         if self.is_train:
             frame_range = range(0, int(self.num_frame * 0.9))
-        else:
+        elif not inference:
             frame_range = range(int(self.num_frame * 0.9), self.num_frame)
+        else:
+            frame_range = range(self.num_frame)
 
         self.img_fpaths = self.base.get_image_fpaths(frame_range)
         
@@ -62,6 +65,17 @@ class PedestrianDataset(VisionDataset):
             self.download(frame_range)
             self.gt_fpath = os.path.join(self.root, 'gt.txt')
             self.prepare_gt()
+        
+        else:
+            self.world_gt = {}
+            self.imgs_gt = {}
+            self.pid_dict = {}
+            self.download(frame_range)
+            self.gt_fpath = os.path.join(self.root, 'gt.txt')
+            self.prepare_gt()
+            self.datetime = None
+            self.fps = 2 # wildtrack
+            self.time_delta = timedelta(milliseconds=1000 / self.fps)
 
         self.calibration = {}
         self.setup()
@@ -303,7 +317,7 @@ class PedestrianDataset(VisionDataset):
         return len(self.world_gt.keys())
     
     def __getitem_infer__(self, index):
-        frame = list(self.img_fpaths[0].keys())[index]
+        frame = list(self.world_gt.keys())[index]
         cameras = list(range(self.num_cam))
 
         # images
@@ -316,7 +330,12 @@ class PedestrianDataset(VisionDataset):
         worldgrid_T_worldcoord = torch.inverse(worldcoord_from_worldgrid)
 
         grid_gt = torch.zeros((self.max_objects, 3), dtype=torch.long)
-
+        
+        if self.datetime is None:
+            self.datetime = datetime.now()
+        self.datetime += self.time_delta
+        time = self.datetime.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+        
         item = {
             'img': imgs,  # S,3,H,W
             'intrinsic': intrins,  # S,4,4
@@ -325,7 +344,9 @@ class PedestrianDataset(VisionDataset):
             'frame': frame // self.base.frame_step,
             'sequence_num': int(0),
             'grid_gt': grid_gt,
+            'time': [time],
         }
+        # print(item)
 
         target = {}
 

@@ -234,7 +234,7 @@ class LoadStreams:
             'intrinsic': intrins,  # S,4,4
             'extrinsic': extrins,  # S,4,4
             'ref_T_global': worldgrid_T_worldcoord,  # 4,4
-            'time': [datetime.datetime.now().strftime("%Y%m%d%H%M%S")],
+            'time': [datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]],
             'sequence_num': [int(0)],
         }
         

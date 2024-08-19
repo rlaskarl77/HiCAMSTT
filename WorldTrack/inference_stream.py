@@ -1,3 +1,4 @@
+from datetime import datetime
 import os.path as osp
 import torch
 import lightning as pl
@@ -228,8 +229,8 @@ class WorldTrackModel(pl.LightningModule):
         pred_path = osp.join(log_dir, f'{time}_mota.txt')
         np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')
         
-        hdc_data = self.convert_mota_to_hdc_format(self.mota_now, time)
-        hdc_data.save_to_file(f"{time}.json")
+        hdc_data = self.convert_mota_to_hdc_format(self.mota_pred_list, time)
+        hdc_data.save_to_file(f"SNU_{datetime.fromisoformat(time).strftime('%Y_%m_%d-%H-%M-%S-%f')[:-3]}_1.json")
 
          
     def on_test_epoch_end(self):
@@ -255,9 +256,9 @@ class WorldTrackModel(pl.LightningModule):
                     id=track_id,
                     action=0,
                     value=0,
-                    posx=x,
-                    posy=y,
-                    posz=0.0,
+                    posx=x/100,
+                    posy=0.,
+                    posz=y/100,
                     sizex=0,
                     sizey=0,
                     sizez=0,
