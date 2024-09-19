@@ -42,7 +42,8 @@ class Decoder(nn.Module):
             'offset': 4,
             'size': 3,
             'rot': 8,
-            # 'id_feat': self.reid_feat,
+            'id_feat': self.reid_feat,
+            'pose': 2,
         }
         for name, out_channels in bev_head_config.items():
             self.bev_heads[name] = nn.Sequential(
@@ -54,18 +55,18 @@ class Decoder(nn.Module):
             if name == 'center':
                 self.bev_heads[name][-1].bias.data.fill_(-2.19)
         
-        self.bev_heads['id_feat'] = nn.Sequential(
-            nn.Conv2d(in_channels, self.head_conv, kernel_size=3, padding=1, bias=False),
-            nn.InstanceNorm2d(self.head_conv),
-            nn.ELU(inplace=True),
-            nn.Conv2d(self.head_conv, self.reid_feat, kernel_size=1, padding=0),
-        )
-        self.bev_heads['pose'] = nn.Sequential(
-            nn.Conv2d(in_channels, self.head_conv, kernel_size=3, padding=1, bias=False),
-            nn.InstanceNorm2d(self.head_conv),
-            nn.ELU(inplace=True),
-            nn.Conv2d(self.head_conv, 2, kernel_size=1, padding=0),
-        )
+        # self.bev_heads['id_feat'] = nn.Sequential(
+        #     nn.Conv2d(in_channels, self.head_conv, kernel_size=3, padding=1, bias=False),
+        #     nn.InstanceNorm2d(self.head_conv),
+        #     nn.ELU(inplace=True),
+        #     nn.Conv2d(self.head_conv, self.reid_feat, kernel_size=1, padding=0),
+        # )
+        # self.bev_heads['pose'] = nn.Sequential(
+        #     nn.Conv2d(in_channels, self.head_conv, kernel_size=3, padding=1, bias=False),
+        #     nn.InstanceNorm2d(self.head_conv),
+        #     nn.ELU(inplace=True),
+        #     nn.Conv2d(self.head_conv, 2, kernel_size=1, padding=0),
+        # )
 
         # img
         self.img_heads = nn.ModuleDict()
@@ -84,11 +85,16 @@ class Decoder(nn.Module):
             )
             if name == 'center':
                 self.img_heads[name][-1].bias.data.fill_(-2.19)
-
-    def forward(self, x, feat_cams, bev_flip_indices=None):
+    
+    def forward_img(self, feat_cams):
+        out_img = {'img_raw_feat': feat_cams}
+        for name, head in self.img_heads.items():
+            out_img[f'img_{name}'] = head(feat_cams)
+        
+        return out_img
+    
+    def up_conv_bev(self, x, bev_flip_indices=None):
         b, c, h, w = x.shape
-        x_raw = x
-
         # pad input
         m = 16
         ph, pw = math.ceil(h / m) * m - h, math.ceil(w / m) * m - w
@@ -127,18 +133,35 @@ class Decoder(nn.Module):
             bev_flip1_index, bev_flip2_index = bev_flip_indices
             x[bev_flip2_index] = torch.flip(x[bev_flip2_index], [-2])  # note [-2] instead of [-3], since Y is gone now
             x[bev_flip1_index] = torch.flip(x[bev_flip1_index], [-1])
-
-        # bev
+    
+    def forward_bev(self, x, bev_flip_indices=None):
+        x_raw = x        
+        x = self.up_conv_bev(x, bev_flip_indices)
         out_bev = {'bev_raw': x_raw, 'bev_feat': x}
-        for name, head in self.bev_heads.items():
-            out_bev[f'instance_{name}'] = head(x)
+        
+        out_bev['instance_center'] = self.bev_heads['center'](x)
+        out_bev['instance_offset'] = self.bev_heads['offset'](x)
+        out_bev['instance_size'] = self.bev_heads['size'](x)
+        out_bev['instance_rot'] = self.bev_heads['rot'](x)
+        out_bev['instance_id_feat'] = self.bev_heads['id_feat'](x)
+        out_bev['instance_pose'] = self.bev_heads['pose'](x)
+        
+        # for name, head in self.bev_heads.items():
+        #     out_bev[f'instance_{name}'] = head(x)
+        
+        return out_bev
 
-        # img
-        out_img = {'img_raw_feat': feat_cams}
-        for name, head in self.img_heads.items():
-            out_img[f'img_{name}'] = head(feat_cams)
-
-        return {**out_bev, **out_img}
+    def forward(self, x, feat_cams, bev_flip_indices=None):
+        
+        out_dict = {}
+        out_bev = self.forward_bev(x, bev_flip_indices)
+        out_img = self.forward_img(feat_cams)
+        
+        out_dict.update(out_bev)
+        out_dict.update(out_img)
+        
+        return out_dict
+        
     
     def align_output(self, out_dict, pix_T_cams, cams_T_global, ref_T_global, rgb_cams_shape):
         """

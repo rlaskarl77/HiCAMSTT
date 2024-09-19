@@ -175,8 +175,11 @@ class JDETracker:
         self.max_time_lost = track_buffer
 
         self.kalman_filter = KalmanFilter()
+        
+        # self.dist_alpha = 1.0
+        self.dist_alpha = 1e6
 
-    def update(self, dets, dets_prev, score):
+    def update(self, dets, dets_prev, score, reid=None):
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
@@ -187,11 +190,22 @@ class JDETracker:
         dets = dets[remain_inds]
         dets_prev = dets_prev[remain_inds]
         # id_feature = id_feature[remain_inds]
+        
+        if reid is not None:
+            reid_flag = True
+        else:
+            reid_flag = False
 
         if len(dets) > 0:
             """Detections"""
             detections = [STrack(xy, xy_prev, s, self.max_time_lost) for
                           (xy, xy_prev, s) in zip(dets, dets_prev, score)]
+            # [print(det.xy.shape) for det in detections]
+            
+            if reid_flag:
+                """Update reid features"""
+                for track, feat in zip(detections, reid):
+                    track.update_features(feat)
         else:
             detections = []
 
@@ -213,13 +227,26 @@ class JDETracker:
         detections_xy_prev = [det.xy_prev for det in detections]
 
         dists = matching.center_distance(strack_pool_xy, detections_xy_prev)
+        
+        if reid_flag:
+            # calculate reid distance
+            # [print(track.smooth_feat.shape) for track in strack_pool]
+            # [print(det.curr_feat.shape) for det in detections]
+            reid_dists = matching.embedding_distance(strack_pool, detections)
+            
+            # dists = dists + reid_dists * 0.5 # 0.5 is the weight for reid distance
+            dists = dists + reid_dists * self.dist_alpha # 0.5 is the weight for reid distance
+        
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=75)
 
         for itracked, idet in matches:
             track = strack_pool[itracked]
             det = detections[idet]
             if track.state == TrackState.Tracked:
-                track.update(det, self.frame_id)
+                if reid_flag:
+                    track.update(det, self.frame_id, update_feature=True)
+                else:
+                    track.update(det, self.frame_id, update_feature=False)
                 activated_starcks.append(track)
             else:
                 track.re_activate(det, self.frame_id, new_id=False)
@@ -239,7 +266,10 @@ class JDETracker:
         dists = matching.center_distance(unconfirmed_xy, detections_xy)
         matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=100)
         for itracked, idet in matches:
-            unconfirmed[itracked].update(detections[idet], self.frame_id)
+            if reid_flag:
+                unconfirmed[itracked].update(detections[idet], self.frame_id, update_feature=True)
+            else:
+                unconfirmed[itracked].update(detections[idet], self.frame_id, update_feature=False)
             activated_starcks.append(unconfirmed[itracked])
         for it in u_unconfirmed:
             track = unconfirmed[it]

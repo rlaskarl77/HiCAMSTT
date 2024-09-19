@@ -167,7 +167,7 @@ class PedestrianDataset(VisionDataset):
             offset[:2, ct_int[1], ct_int[0]] = ct - ct_int
             person_ids[:, ct_int[1], ct_int[0]] = pid
 
-            if pid in pids_pre and False:
+            if pid in pids_pre:
                 t_off = prev_pts[pid.int().item()][:2] - ct_int
                 if t_off.abs().max() > 15:
                     continue
@@ -360,12 +360,12 @@ class PedestrianDataset(VisionDataset):
         frame = list(self.world_gt.keys())[index]
         pre_frame = list(self.world_gt.keys())[max(index - 1, 0)]
         
-        # random_index = np.random.randint(0, len(self.world_gt.keys()))
-        # while random_index == index or random_index == index - 1:
-        #     random_index = np.random.randint(0, len(self.world_gt.keys()))
+        random_index = np.random.randint(0, len(self.world_gt.keys()))
+        while random_index == index or random_index == index - 1:
+            random_index = np.random.randint(0, len(self.world_gt.keys()))
         
-        # random_frame = list(self.world_gt.keys())[random_index]
-        # pre_random_frame = list(self.world_gt.keys())[max(random_index - 1, 0)]
+        random_frame = list(self.world_gt.keys())[random_index]
+        pre_random_frame = list(self.world_gt.keys())[max(random_index - 1, 0)]
         
         cameras = list(range(self.num_cam))
 
@@ -373,14 +373,14 @@ class PedestrianDataset(VisionDataset):
         imgs, intrins, extrins, centers_img, offsets_img, sizes_img, pids_img, valids_img \
             = self.get_image_data(frame, cameras)
         
-        # imgs_prev, _, _, _, _, _, _, _ \
-        #     = self.get_image_data(pre_frame, cameras)
+        imgs_prev, _, _, _, _, _, _, _ \
+            = self.get_image_data(pre_frame, cameras)
             
-        # imgs_rand, _, _, _, _, _, _, _ \
-        #     = self.get_image_data(random_frame, cameras)
+        imgs_rand, _, _, _, _, _, _, _ \
+            = self.get_image_data(random_frame, cameras)
         
-        # imgs_prev_rand, _, _, _, _, _, _, _ \
-        #     = self.get_image_data(pre_random_frame, cameras)
+        imgs_prev_rand, _, _, _, _, _, _, _ \
+            = self.get_image_data(pre_random_frame, cameras)
 
         worldcoord_from_worldgrid = torch.eye(4)
         worldcoord_from_worldgrid2d = torch.tensor(self.base.worldcoord_from_worldgrid_mat, dtype=torch.float32)
@@ -391,13 +391,16 @@ class PedestrianDataset(VisionDataset):
         worldgrid_pts_org, world_pids = self.world_gt[frame]
         worldgrid_pts_pre, world_pid_pre = self.world_gt[pre_frame]
         
-        # worldgrid_pts_rand, world_pids_rand = self.world_gt[random_frame]
-        # worldgrid_pts_pre_rand, world_pid_pre_rand = self.world_gt[pre_random_frame]
+        worldgrid_pts_rand, world_pids_rand = self.world_gt[random_frame]
+        worldgrid_pts_pre_rand, world_pid_pre_rand = self.world_gt[pre_random_frame]
 
         worldgrid_pts = torch.cat((worldgrid_pts_org, torch.zeros_like(worldgrid_pts_org[:, 0:1])), dim=1).unsqueeze(0)
         worldgrid_pts_pre = torch.cat((worldgrid_pts_pre, torch.zeros_like(worldgrid_pts_pre[:, 0:1])), dim=1)
+        
+        worldgrid_pts_rand = torch.cat((worldgrid_pts_rand, torch.zeros_like(worldgrid_pts_rand[:, 0:1])), dim=1).unsqueeze(0)
+        worldgrid_pts_pre_rand = torch.cat((worldgrid_pts_pre_rand, torch.zeros_like(worldgrid_pts_pre_rand[:, 0:1])), dim=1)
 
-        if self.is_train:
+        if self.is_train and False:
             Rz = torch.eye(3)
             scene_center = torch.tensor([0., 0., 0.], dtype=torch.float32)
             # off = 0.25
@@ -411,8 +414,12 @@ class PedestrianDataset(VisionDataset):
         mem_pts_pre = self.vox_util.Ref2Mem(worldgrid_pts_pre.unsqueeze(0), self.Y, self.Z, self.X)
         center_bev, valid_bev, pid_bev, offset_bev = self.get_bev_gt(mem_pts, mem_pts_pre,  world_pids, world_pid_pre)
         
-        # _, _, pid_bev_prev, _ = self.get_bev_gt(mem_pts_pre, mem_pts_pre, world_pid_pre, world_pid_pre)
-        # _, _, pid_bev_rand, _ = self.get_bev_gt(mem_pts, mem_pts_pre, world_pids_rand, world_pids_rand)
+        mem_pts_rand = self.vox_util.Ref2Mem(worldgrid_pts_rand, self.Y, self.Z, self.X)
+        mem_pts_pre_rand = self.vox_util.Ref2Mem(worldgrid_pts_pre_rand.unsqueeze(0), self.Y, self.Z, self.X)
+        _, _, pid_bev_rand, _ = self.get_bev_gt(mem_pts_rand, mem_pts_pre_rand, world_pids_rand, world_pid_pre_rand)
+        
+        _, _, pid_bev_prev, _ = self.get_bev_gt(mem_pts_pre, mem_pts_pre, world_pid_pre, world_pid_pre)
+        # _, _, pid_bev_rand, _ = self.get_bev_gt(mem_pts, mem_pts_pre, world_pids_rand, world_pid_pre_rand)
         # _, _, pid_bev_prev_rand, _ = self.get_bev_gt(mem_pts_pre, mem_pts_pre, world_pid_pre_rand, world_pid_pre_rand)
         
 
@@ -436,9 +443,10 @@ class PedestrianDataset(VisionDataset):
             'frame': frame // self.base.frame_step,
             'sequence_num': int(0),
             'grid_gt': grid_gt,
-            # 'img_prev': imgs_prev,  # S,3,H,W
-            # 'img_rand': imgs_rand,  # S,3,H,W
-            # 'img_prev_rand': imgs_prev_rand,  # S,3,H,W
+            'img_prev': imgs_prev,  # S,3,H,W
+            'img_rand': imgs_rand,  # S,3,H,W
+            'img_prev_rand': imgs_prev_rand,  # S,3,H,W
+            'frame_rand': random_frame // self.base.frame_step,
         }
         target = {
             # bev
@@ -446,14 +454,17 @@ class PedestrianDataset(VisionDataset):
             'center_bev': center_bev,  # 1,Y,X
             'offset_bev': offset_bev,  # 2,Y,X
             'pid_bev': pid_bev,  # 1,Y,X
+            'pid_bev_prev': pid_bev_prev,  # 1,Y,X
+            'pid_bev_rand': pid_bev_rand,  # 1,Y,X
+            # 'pid_bev_prev_rand': pid_bev_prev_rand,  # 1,Y,X
             # img
             'center_img': centers_img,  # S,1,H/8,W/8
             'offset_img': offsets_img,  # S,2,H/8,W/8
             'size_img': sizes_img,  # S,2,H/8,W/8
             'valid_img': valids_img,  # S,1,H/8,W/8
             'pid_img': pids_img,  # S,1,H/8,W/8
-            # 'pid_bev_prev': pid_bev_prev,  # 1,Y,X
-            # 'pid_bev_rand': pid_bev_rand,  # 1,Y,X
-            # 'pid_bev_prev_rand': pid_bev_prev_rand,  # 1,Y,X
+            
+            # ETC
+            'frame_rand': random_frame // self.base.frame_step,
         }
         return item, target

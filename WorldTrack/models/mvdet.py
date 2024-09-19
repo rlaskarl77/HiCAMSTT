@@ -73,32 +73,14 @@ class MVDet(nn.Module):
         self.tracking_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
         self.size_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
         self.rot_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
+        
+        self.reid_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
+        self.pose_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
 
-    def forward(self, rgb_cams, pix_T_cams, cams_T_global, vox_util, ref_T_global, prev_bev=None):
-        """
-        B = batch size, S = number of cameras, C = 3, H = img height, W = img width
-        rgb_cams: (B,S,C,H,W)
-        pix_T_cams: (B,S,4,4)
-        cams_T_global: (B,S,4,4)
-        vox_util: vox util object
-        ref_T_global: (B,4,4)
-        """
-        B, S, C, H, W = rgb_cams.shape
-        # reshape tensors
-        __p = lambda x: utils.basic.pack_seqdim(x, B)
+    def process_3D(self, rgb_shape, feat_cams_, vox_util, pix_T_cams_, cams_T_ref_):
+        B, S, C, H, W = rgb_shape
         __u = lambda x: utils.basic.unpack_seqdim(x, B)
-        rgb_cams_ = __p(rgb_cams)  # B*S,3,H,W
-        pix_T_cams_ = __p(pix_T_cams)  # B*S,4,4
-        cams_T_global_ = __p(cams_T_global)  # B*S,4,4
-
-        global_T_cams_ = torch.inverse(cams_T_global_)  # B*S,4,4
-        ref_T_cams_ = torch.matmul(ref_T_global.repeat(S, 1, 1), global_T_cams_)  # B*S,4,4
-        cams_T_ref_ = torch.inverse(ref_T_cams_)  # B*S,4,4
-
-        # rgb encoder
-        device = rgb_cams_.device
-        rgb_cams_ = (rgb_cams_ - self.mean.to(device)) / self.std.to(device)  # B*S,3,H,W
-        feat_cams_ = self.encoder(rgb_cams_)  # B*S,latent_dim,H/8,W/8
+        
         _, C, Hf, Wf = feat_cams_.shape
         sy = Hf / float(H)
         sx = Wf / float(W)
@@ -114,25 +96,77 @@ class MVDet(nn.Module):
         # B*S,latent_dim,Y,X
         feat_mems_ = warp_perspective(feat_cams_, proj_mats, (self.Y, self.X), align_corners=False)
         feat_mems = __u(feat_mems_)  # B,S,latent_dim,Y,X
-
-        # bev_img_ = warp_perspective(rgb_cams_, proj_mats, (self.Y, self.X), align_corners=False)
-        # bev_img = __u(bev_img_)
-        # import matplotlib.pyplot as plt
-        # plt.imshow(bev_img[0, :, :, 0].permute(1, 2, 0).cpu())
-        # plt.show()
-
+        
         if self.num_cameras is None:
             mask_mems = (torch.abs(feat_mems) > 0).float()
             feat_mem = utils.basic.reduce_masked_mean(feat_mems, mask_mems, dim=1)  # B, C, Z, Y, X
         else:
             feat_mem = self.cam_compressor(feat_mems.flatten(1, 2))
+        
+        return feat_mem
+    
+    def compute_cams(self, rgb_shape, pix_T_cams, cams_T_global, ref_T_global):
+        
+        B, S, C, H, W = rgb_shape
+        # reshape tensors
+        __p = lambda x: utils.basic.pack_seqdim(x, B)
+        
+        pix_T_cams_ = __p(pix_T_cams)  # B*S,4,4
+        cams_T_global_ = __p(cams_T_global)  # B*S,4,4
 
+        global_T_cams_ = torch.inverse(cams_T_global_)  # B*S,4,4
+        ref_T_cams_ = torch.matmul(ref_T_global.repeat(S, 1, 1), global_T_cams_)  # B*S,4,4
+        cams_T_ref_ = torch.inverse(ref_T_cams_)  # B*S,4,4
+        
+        return pix_T_cams_, cams_T_global_, global_T_cams_, ref_T_cams_, cams_T_ref_
+    
+    def compute_feats(self, rgb_cams, rgb_shape):
+        B, _, _, _, _ = rgb_shape
+        __p = lambda x: utils.basic.pack_seqdim(x, B)
+        rgb_cams_ = __p(rgb_cams)
+        
+        device = rgb_cams_.device
+        rgb_cams_ = (rgb_cams_ - self.mean.to(device)) / self.std.to(device)
+        feat_cams_ = self.encoder(rgb_cams_)
+        
+        return feat_cams_
+    
+    def process_temporal(self, feat_mem, prev_bev=None):
         if prev_bev is None:
             prev_bev = feat_mem
         bev_features = torch.cat([feat_mem, prev_bev], dim=1)
         bev_features = self.temporal_bev(bev_features)
+        
+        return bev_features
 
-        out_dict = self.decoder(bev_features, feat_cams_,
-                                (self.bev_flip1_index, self.bev_flip2_index) if self.rand_flip else None)
+
+    def forward(self, rgb_cams, pix_T_cams, cams_T_global, vox_util, ref_T_global, prev_bev=None):
+        """
+        B = batch size, S = number of cameras, C = 3, H = img height, W = img width
+        rgb_cams: (B,S,C,H,W)
+        pix_T_cams: (B,S,4,4)
+        cams_T_global: (B,S,4,4)
+        vox_util: vox util object
+        ref_T_global: (B,4,4)
+        """
+        B, S, C, H, W = rgb_shape = rgb_cams.shape
+        
+        pix_T_cams_, cams_T_global_, global_T_cams_, ref_T_cams_, cams_T_ref_ = \
+            self.compute_cams(rgb_shape, pix_T_cams, cams_T_global, ref_T_global)
+            
+        feat_cams_ = self.compute_feats(rgb_cams, rgb_shape)
+        
+        feat_mem = self.process_3D(rgb_shape, feat_cams_, vox_util, pix_T_cams_, cams_T_ref_)
+        
+        bev_features = self.process_temporal(feat_mem, prev_bev)
+        
+        return self.decoder(bev_features, feat_cams_, (self.bev_flip1_index, self.bev_flip2_index) if self.rand_flip else None)
+    
+        out_bev = self.decoder.forward_bev(bev_features, (self.bev_flip1_index, self.bev_flip2_index) if self.rand_flip else None)
+        out_img = self.decoder.forward_img(feat_cams_)
+        
+        out_dict = {}
+        out_dict.update(out_bev)
+        out_dict.update(out_img)
 
         return out_dict

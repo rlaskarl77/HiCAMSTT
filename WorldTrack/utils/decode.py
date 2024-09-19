@@ -77,6 +77,53 @@ def decoder(center_e, offset_e, size_e, rz_e=None, K=60):
     return xy.detach(), xy_prev.detach(), scores.detach(), clses.detach(), size.detach(), rz.detach()
 
 
+def decoder_reid(center_e, offset_e, size_e, rz_e=None, reid_e=None, K=60):
+    """
+    center_e: B,1,H,W
+    offset_e: B,2,H,W
+    size_e: B,3,H,W
+    rz_e: B,8,H,W
+    id_e: B,C,H,W
+    """
+    batch, cat, height, width = center_e.size()
+    center_e = _nms(center_e)
+
+    topk_scores, topk_inds = torch.topk(center_e.view(batch, cat, -1), K)
+
+    topk_inds = topk_inds % (height * width)
+    ys = (topk_inds / width).int().float()
+    xs = (topk_inds % width).int().float()
+
+    scores, topk_ind = torch.topk(topk_scores.view(batch, -1), K)
+    clses = (topk_ind / K).int()
+
+    offset = _transpose_and_gather_feat(offset_e, topk_ind)  # B,K,2
+    size = _transpose_and_gather_feat(size_e, topk_ind)  # B,K,3
+    if rz_e is not None:
+        rz = _transpose_and_gather_feat(rz_e, topk_ind)
+        rz = torch.stack([get_alpha(r) for r in rz])
+    else:
+        rz = torch.zeros_like(scores)
+    
+    if reid_e is not None:
+        reid = _transpose_and_gather_feat(reid_e, topk_ind)
+    else:
+        reid = torch.zeros_like(scores)
+
+    ys = _gather_feat(ys.view(batch, -1, 1), topk_ind).view(batch, K)
+    xs = _gather_feat(xs.view(batch, -1, 1), topk_ind).view(batch, K)
+
+    xs = xs.view(batch, K, 1) + offset[:, :, 0:1]
+    ys = ys.view(batch, K, 1) + offset[:, :, 1:2]
+    xy = torch.cat((xs, ys), dim=2)  # batch,K,2
+
+    xs_prev = xs.view(batch, K, 1) + offset[:, :, 2:3]
+    ys_prev = ys.view(batch, K, 1) + offset[:, :, 3:4]
+    xy_prev = torch.cat((xs_prev, ys_prev), dim=2)  # batch,K,2
+
+    return xy.detach(), xy_prev.detach(), scores.detach(), clses.detach(), size.detach(), rz.detach(), reid.detach()
+
+
 def _topk(scores, K=40):
     batch, cat, length, width = scores.size()  # cat = 1
 
