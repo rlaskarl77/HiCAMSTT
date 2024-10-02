@@ -177,7 +177,7 @@ class JDETracker:
         self.kalman_filter = KalmanFilter()
         
         # self.dist_alpha = 1.0
-        self.dist_alpha = 1e6
+        self.dist_alpha = 10. #0.1
 
     def update(self, dets, dets_prev, score, reid=None):
         self.frame_id += 1

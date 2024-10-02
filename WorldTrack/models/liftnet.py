@@ -88,6 +88,9 @@ class Liftnet(nn.Module):
         self.tracking_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
         self.size_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
         self.rot_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
+        
+        self.reid_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
+        self.pose_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
 
     def create_frustum(self):
         # make grid in image plane

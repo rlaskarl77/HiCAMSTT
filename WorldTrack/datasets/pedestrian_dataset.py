@@ -50,9 +50,11 @@ class PedestrianDataset(VisionDataset):
         self.inference = inference
 
         if self.is_train:
-            frame_range = range(0, int(self.num_frame * 0.9))
+            # frame_range = range(0, int(self.num_frame * 0.9))
+            frame_range = list(range(0, 378)) + list(range(582, 872)) # hdc
         elif not inference:
-            frame_range = range(int(self.num_frame * 0.9), self.num_frame)
+            # frame_range = range(int(self.num_frame * 0.9), self.num_frame)
+            frame_range = range(1486, 1756)
         else:
             frame_range = range(self.num_frame)
 
@@ -443,6 +445,7 @@ class PedestrianDataset(VisionDataset):
             'frame': frame // self.base.frame_step,
             'sequence_num': int(0),
             'grid_gt': grid_gt,
+            
             'img_prev': imgs_prev,  # S,3,H,W
             'img_rand': imgs_rand,  # S,3,H,W
             'img_prev_rand': imgs_prev_rand,  # S,3,H,W
@@ -454,8 +457,10 @@ class PedestrianDataset(VisionDataset):
             'center_bev': center_bev,  # 1,Y,X
             'offset_bev': offset_bev,  # 2,Y,X
             'pid_bev': pid_bev,  # 1,Y,X
+            
             'pid_bev_prev': pid_bev_prev,  # 1,Y,X
             'pid_bev_rand': pid_bev_rand,  # 1,Y,X
+            
             # 'pid_bev_prev_rand': pid_bev_prev_rand,  # 1,Y,X
             # img
             'center_img': centers_img,  # S,1,H/8,W/8

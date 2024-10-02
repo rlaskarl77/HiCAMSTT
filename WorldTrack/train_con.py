@@ -34,6 +34,7 @@ class WorldTrackModel(pl.LightningModule):
             use_temporal_cache=True,
             z_sign=1,
             feat2d_dim=128,
+            temperature=1.,
     ):
         super().__init__()
         self.model_name = model_name
@@ -53,7 +54,7 @@ class WorldTrackModel(pl.LightningModule):
 
         # Temporal cache
         self.use_temporal_cache = use_temporal_cache
-        self.max_cache = 512 #32
+        self.max_cache = 16 #32 #512 #32
         self.temporal_cache_frames = -2 * torch.ones(self.max_cache, dtype=torch.long)
         self.temporal_cache = None
 
@@ -113,9 +114,12 @@ class WorldTrackModel(pl.LightningModule):
         self.feat_dist_list = []
         
         # contrastive loss
-        self.temperature = 1. #0.07
+        self.temperature = temperature #0.07
+        
+        self.temporal_cache_raw = None
+        self.temporal_cache_bev = None
 
-    def forward(self, item):
+    def forward(self, item, is_train=True):
         """
         B = batch size, S = number of cameras, C = 3, H = img height, W = img width
         rgb_cams: (B,S,C,H,W)
@@ -136,9 +140,14 @@ class WorldTrackModel(pl.LightningModule):
         )
 
         if self.use_temporal_cache:
-            self.store_cache(item['frame'].cpu(), 
-                             output['bev_raw'].clone().detach(),
-                             output['bev_feat'].clone().detach())
+            if is_train:
+                self.store_cache(item['frame'].cpu(), 
+                                output['bev_raw'].clone().detach(),
+                                None)
+            else:
+                self.store_cache(item['frame'].cpu(),
+                                output['bev_raw'].clone().detach(),
+                                output['bev_feat'].clone().detach())
 
         return output
     
@@ -195,7 +204,6 @@ class WorldTrackModel(pl.LightningModule):
             vox_util=self.vox_util,
             prev_bev=bev_prev_random_raw,
         )
-            
         
         return output, output_random
         
@@ -213,31 +221,47 @@ class WorldTrackModel(pl.LightningModule):
         if len(idx) != len(frames):
             return (None, None)
         else:
+            if self.temporal_cache_bev is None:
+                return self.temporal_cache_raw[idx], None
             return self.temporal_cache_raw[idx], self.temporal_cache_bev[idx]
 
-    def store_cache(self, frames, bev_raw, bev):
+    def store_cache(self, frames, bev_raw, bev=None):
         if self.temporal_cache is None:
             dtype = bev_raw.dtype
             device = bev_raw.device
             shape_raw = list(bev_raw.shape)
             shape_raw[0] = self.max_cache
-            shape = list(bev.shape)
-            shape[0] = self.max_cache
-            self.temporal_cache_raw = torch.zeros(shape, device=device, dtype=dtype)
-            self.temporal_cache_bev = torch.zeros(shape, device=device, dtype=dtype)
+            self.temporal_cache_raw = torch.zeros(shape_raw, device=device, dtype=dtype)
+            if bev is not None:
+                shape = list(bev.shape)
+                shape[0] = self.max_cache
+                self.temporal_cache_bev = torch.zeros(shape, device=device, dtype=dtype)
+        
+        if bev is None:
+            for frame, feat_raw in zip(frames, bev_raw):
+                i = (frame == self.temporal_cache_frames).nonzero(as_tuple=True)[0]
+                # Choose unfilled cache slot
+                if i.nelement() == 0:
+                    i = (self.temporal_cache_frames == -2).nonzero(as_tuple=True)[0]
+                # Choose random cache slot
+                if i.nelement() == 0:
+                    i = torch.randint(self.max_cache, (1, 1))
 
-        for frame, feat_raw, feat in zip(frames, bev_raw, bev):
-            i = (frame == self.temporal_cache_frames).nonzero(as_tuple=True)[0]
-            # Choose unfilled cache slot
-            if i.nelement() == 0:
-                i = (self.temporal_cache_frames == -2).nonzero(as_tuple=True)[0]
-            # Choose random cache slot
-            if i.nelement() == 0:
-                i = torch.randint(self.max_cache, (1, 1))
+                self.temporal_cache_raw[i[0]] = feat_raw
+                self.temporal_cache_frames[i[0]] = frame
+        else:
+            for frame, feat_raw, feat in zip(frames, bev_raw, bev):
+                i = (frame == self.temporal_cache_frames).nonzero(as_tuple=True)[0]
+                # Choose unfilled cache slot
+                if i.nelement() == 0:
+                    i = (self.temporal_cache_frames == -2).nonzero(as_tuple=True)[0]
+                # Choose random cache slot
+                if i.nelement() == 0:
+                    i = torch.randint(self.max_cache, (1, 1))
 
-            self.temporal_cache_raw[i[0]] = feat_raw
-            self.temporal_cache_bev[i[0]] = feat
-            self.temporal_cache_frames[i[0]] = frame
+                self.temporal_cache_raw[i[0]] = feat_raw
+                self.temporal_cache_bev[i[0]] = feat
+                self.temporal_cache_frames[i[0]] = frame
 
     def loss(self, target, output):
         center_e = output['instance_center']
@@ -482,7 +506,7 @@ class WorldTrackModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         item, target = batch
-        output = self(item)
+        output = self(item, is_train=True)
         
         if batch_idx < 5:
             self.plot_data_train(item, target, output, batch_idx)
@@ -498,7 +522,7 @@ class WorldTrackModel(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         item, target = batch
-        output = self(item)
+        output = self(item, is_train=True)
 
         # if batch_idx % 100 == 1:
         #     self.plot_data(target, output, batch_idx)

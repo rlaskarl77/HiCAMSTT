@@ -34,6 +34,7 @@ class WorldTrackModel(pl.LightningModule):
             use_temporal_cache=True,
             z_sign=1,
             feat2d_dim=128,
+            temperature=1.,
     ):
         super().__init__()
         self.model_name = model_name
@@ -53,7 +54,7 @@ class WorldTrackModel(pl.LightningModule):
 
         # Temporal cache
         self.use_temporal_cache = use_temporal_cache
-        self.max_cache = 512 #32
+        self.max_cache = 32 #512 #32
         self.temporal_cache_frames = -2 * torch.ones(self.max_cache, dtype=torch.long)
         self.temporal_cache = None
 
@@ -113,7 +114,7 @@ class WorldTrackModel(pl.LightningModule):
         self.feat_dist_list = []
         
         # contrastive loss
-        self.temperature = 1. #0.07
+        self.temperature = temperature #0.07
 
     def forward(self, item):
         """
@@ -727,7 +728,7 @@ class WorldTrackModel(pl.LightningModule):
         mixed = 0.4 * rgb_cams + 0.6 * heatmap_colored
         mixed = np.clip(mixed, 0, 1)
 
-        fig, axes = plt.subplots(1, S, figsize=(12, 8))
+        fig, axes = plt.subplots(1, S, figsize=(30, 8), dpi=400)
         for cam in range(S):
             ax = axes[cam]
             ax.imshow(mixed[cam])
@@ -801,6 +802,9 @@ class WorldTrackModel(pl.LightningModule):
         pix_T_ref = torch.matmul(pix_T_cams.detach().cpu()[:, :3, :3], cams_T_ref[:, :3, [0, 1, 3]])  # S,3,3
         
         mota_data = np.asarray(mota_now)
+        
+        if len(mota_data) == 0:
+            return
         
         mota_data = mota_data[:, (1, 2, 8, 9)]
         mota_world = torch.from_numpy(np.concatenate([mota_data[:, 2:], 

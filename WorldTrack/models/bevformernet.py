@@ -235,6 +235,9 @@ class Bevformernet(nn.Module):
         self.tracking_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
         self.size_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
         self.rot_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
+        
+        self.reid_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
+        self.pose_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
 
     def forward(self, rgb_cams, pix_T_cams, cams_T_global, vox_util, ref_T_global, prev_bev=None):
         """

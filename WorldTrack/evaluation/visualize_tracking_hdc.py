@@ -22,9 +22,9 @@ import torch
 intrinsic_camera_matrix_filenames = ['intr_cam1.xml', 'intr_cam2.xml', 'intr_cam3.xml']
 extrinsic_camera_matrix_filenames = ['extr_cam1.xml', 'extr_cam2.xml', 'extr_cam3.xml']
 
-DATA_PATH = '/131_data/datasets/HiCAMS/20240415'
-SAVE_PATH = '/home/namgi/TrackTacular/visualization/hdc/train_medium_noaug_t0.33'
-PRED_FILE = '/home/namgi/TrackTacular/WorldTrack/lightning_logs/test_hdc_medium_noaug_t0.33/mota_pred.txt'
+DATA_PATH = '/131_data/datasets/HiCAMS/20240702'
+SAVE_PATH = '/home/namgi/TrackTacular/visualization/hdc/contrastive_vis'
+PRED_FILE = '/home/namgi/TrackTacular/WorldTrack/reid/test/lightning_logs/mvdet_res18_hdc-s124t7_simclr_t1_tracking_a@0.1/mota_pred.txt'
 
 font_size = 50
 font = ImageFont.truetype("Arial.ttf", font_size)
@@ -107,7 +107,7 @@ def plot(path):
     # data = data[:, (0, 1, 7 ,8)]
     data = data[:, (1, 2, 8, 9)]
     data[:, 2:4] -= 450
-    data[:, [2, 3]] = data[:, [3, 2]]
+    # data[:, [2, 3]] = data[:, [3, 2]]
 
     frames = np.unique(data[:, 0]).astype(int).tolist()
     ids = np.unique(data[:, 1]).astype(int).tolist()
@@ -182,6 +182,7 @@ def plot(path):
         for id in ids:
             id_data = data[data[:, 1] == id]
             id_data = id_data[id_data[:, 0] <= frame]
+            id_data = id_data[id_data[:, 0] > frame-10]
             id_data = id_data[id_data[:, 2] < xlim_max]
             id_data = id_data[id_data[:, 2] > xlim_min]
             id_data = id_data[id_data[:, 3] < ylim_max]
@@ -262,12 +263,12 @@ def plot(path):
                 draw.ellipse([id_data[cam_index]-20, id_data[cam_index+1]-20, id_data[cam_index]+20, id_data[cam_index+1]+20], fill=colors[id])
                 draw.text([id_data[cam_index]+20, id_data[cam_index+1]-30], f'id_{id}', colors[id], font=font, stroke_width=1)
                 
-                for i, j in [(0, 1), (1, 3), (3, 2), (2, 0), (4, 5), (5, 7), (7, 6), (6, 4), (0, 4), (1, 5), (2, 6), (3, 7)]:
-                    x_i = id_data[cam_index+i*2+2]
-                    y_i = id_data[cam_index+i*2+3]
-                    x_j = id_data[cam_index+j*2+2]
-                    y_j = id_data[cam_index+j*2+3]
-                    draw.line([x_i, y_i, x_j, y_j], fill=colors[id], width=5)
+                # for i, j in [(0, 1), (1, 3), (3, 2), (2, 0), (4, 5), (5, 7), (7, 6), (6, 4), (0, 4), (1, 5), (2, 6), (3, 7)]:
+                #     x_i = id_data[cam_index+i*2+2]
+                #     y_i = id_data[cam_index+i*2+3]
+                #     x_j = id_data[cam_index+j*2+2]
+                #     y_j = id_data[cam_index+j*2+3]
+                #     draw.line([x_i, y_i, x_j, y_j], fill=colors[id], width=5)
                 
             
             image.save(osp.join(SAVE_PATH, f'plot_pred_{frame}_{cam_id}.png'))
