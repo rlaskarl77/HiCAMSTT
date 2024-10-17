@@ -570,6 +570,7 @@ class WorldTrackModel(pl.LightningModule):
             mota_pred = [[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
                             + s.xy.tolist() + [-1] for s in output_stracks]
             
+            # mota_pred = [row for row in mota_pred if len(row) == 11]
             mota_gt = np.array(mota_gt, dtype=np.float32)
             mota_pred = np.array(mota_pred, dtype=np.float32)
             if len(mota_gt) == 0 or len(mota_pred) == 0:
@@ -577,7 +578,6 @@ class WorldTrackModel(pl.LightningModule):
             
             mota_gt = mota_gt[mota_gt[:, 0] == seq_num.item()]
             mota_pred = mota_pred[mota_pred[:, 0] == seq_num.item()]
-            
             self.mota_gt_list.extend(mota_gt.tolist())
             self.mota_pred_list.extend(mota_pred.tolist())
     
@@ -610,8 +610,10 @@ class WorldTrackModel(pl.LightningModule):
         scale = 0.01
         pred_path = osp.join(log_dir, 'mota_pred.txt')
         gt_path = osp.join(log_dir, 'mota_gt.txt')
-        np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')
-        np.savetxt(gt_path, np.array(self.mota_gt_list), '%f', delimiter=',')
+
+        self.mota_pred_list = [row for row in self.mota_pred_list if len(row) == 11]
+        np.savetxt(pred_path, np.array(self.mota_pred_list), fmt='%.6f', delimiter=',')
+        np.savetxt(gt_path, np.array(self.mota_gt_list), fmt='%.6f', delimiter=',')
         summary = mot_metrics(osp.abspath(pred_path), osp.abspath(gt_path), scale)
         summary = summary.loc['OVERALL']
         for key, value in summary.to_dict().items():

@@ -3,8 +3,9 @@ import numpy as np
 
 
 def mot_metrics(tSource, gtSource, scale=0.025):
-    gt = np.loadtxt(gtSource, delimiter=',')
-    dt = np.loadtxt(tSource, delimiter=',')
+    # gt = np.loadtxt(gtSource, delimiter=',')
+    gt = np.genfromtxt(gtSource, delimiter=',', invalid_raise=False)
+    dt = np.genfromtxt(tSource, delimiter=',', invalid_raise=False)
 
     accs = []
     for seq in np.unique(gt[:, 0]).astype(int):
