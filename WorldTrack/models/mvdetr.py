@@ -18,7 +18,8 @@ class MVDetr(nn.Module):
                  latent_dim=256,
                  feat2d_dim=128,
                  encoder_type='res18',
-                 device=torch.device('cuda')):
+                 device=torch.device('cuda'),
+                 decoder_args=None,):
         super().__init__()
         assert (encoder_type in ['res101', 'res50', 'res18', 'res34', 'effb0', 'effb4', 'swin_t'])
 
@@ -65,6 +66,7 @@ class MVDetr(nn.Module):
             in_channels=latent_dim,
             n_classes=num_classes,
             feat2d=self.feat2d_dim,
+            **decoder_args
         )
 
         # Weights

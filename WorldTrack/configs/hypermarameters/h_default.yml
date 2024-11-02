@@ -1,0 +1,30 @@
+model:
+  # decoder
+  learn_reid: True
+  reid_feat: 128
+  pose_feat: 128
+  hard_mask: False
+  learn_reid: True
+  temperature: 0.03
+  # tracker
+  use_temporal_cache: True
+  max_detections: 60
+  conf_threshold: 0.25
+  max_cache: 32
+  conf_thres: 0.5
+  track_buffer: 5
+  lapjv_thresh: 0.25
+  lapjv_thresh2: 0.5
+  max_spatial_dist: 75.
+  max_spatial_dist2: 100.
+  dist_alpha: 0.5
+  temp_mixing: True
+  lambda_1: 1.
+  lambda_2: 1.
+  # contrastive learning
+  cont_type: simclr
+  learn_cont_pose: True
+  temperature_pose: 0.03
+  pose_cont_thresh: 0.8
+  # test mode
+  test_mode: tracking

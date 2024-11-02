@@ -50,11 +50,12 @@ class PedestrianDataset(VisionDataset):
         self.inference = inference
 
         if self.is_train:
-            # frame_range = range(0, int(self.num_frame * 0.9))
-            frame_range = list(range(0, 378)) + list(range(582, 872)) # hdc
+            frame_range = range(0, int(self.num_frame * 0.9))
+            # frame_range = list(range(0, 378)) + list(range(582, 872)) # hdc
         elif not inference:
-            # frame_range = range(int(self.num_frame * 0.9), self.num_frame)
-            frame_range = range(1486, 1756)
+            frame_range = range(int(self.num_frame * 0.9), self.num_frame)
+            # frame_range = range(1486, 1756) # hdc
+            # frame_range = range(50)
         else:
             frame_range = range(self.num_frame)
 

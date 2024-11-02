@@ -14,10 +14,22 @@ from models.encoder import freeze_bn, UpsamplingConcat
 
 
 class Decoder(nn.Module):
-    def __init__(self, in_channels, n_classes, feat2d=128):
+    def __init__(self, 
+                 in_channels, 
+                 n_classes, 
+                 feat2d=128,
+                 learn_reid=True,
+                 reid_feat=128,
+                 pose_feat=128,
+                 hard_mask=False,
+                 ):
+        
         super().__init__()
+        
+        # backbone
         backbone = torchvision.models.resnet18(weights=torchvision.models.ResNet18_Weights.DEFAULT)
         freeze_bn(backbone)
+        
         self.first_conv = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = backbone.bn1
         self.relu = backbone.relu
@@ -29,7 +41,11 @@ class Decoder(nn.Module):
         self.feat2d = feat2d
         self.head_conv = 128
         
-        self.reid_feat = 128
+        self.learn_reid = learn_reid
+        self.reid_feat = reid_feat
+        self.pose_feat = pose_feat
+        
+        self.hard_mask = hard_mask
 
         self.up3_skip = UpsamplingConcat(256 + 128, 256)
         self.up2_skip = UpsamplingConcat(256 + 64, 256)
@@ -54,18 +70,25 @@ class Decoder(nn.Module):
             if name == 'center':
                 self.bev_heads[name][-1].bias.data.fill_(-2.19)
         
-        self.bev_heads['id_feat'] = nn.Sequential(
-            nn.Conv2d(in_channels, self.head_conv, kernel_size=3, padding=1, bias=False),
-            nn.InstanceNorm2d(self.head_conv),
-            nn.ELU(inplace=True),
-            nn.Conv2d(self.head_conv, self.reid_feat, kernel_size=1, padding=0),
-        )
-        self.bev_heads['pose'] = nn.Sequential(
-            nn.Conv2d(in_channels, self.head_conv, kernel_size=3, padding=1, bias=False),
-            nn.InstanceNorm2d(self.head_conv),
-            nn.ELU(inplace=True),
-            nn.Conv2d(self.head_conv, 2, kernel_size=1, padding=0),
-        )
+        if self.learn_reid:
+            self.bev_heads['id_feat'] = nn.Sequential(
+                nn.Conv2d(in_channels, self.head_conv, kernel_size=3, padding=1, bias=False),
+                nn.InstanceNorm2d(self.head_conv),
+                nn.ELU(inplace=True),
+                nn.Conv2d(self.head_conv, self.reid_feat, kernel_size=1, padding=0),
+            )
+            self.bev_heads['pose'] = nn.Sequential(
+                nn.Conv2d(in_channels, self.head_conv, kernel_size=3, padding=1, bias=False),
+                nn.InstanceNorm2d(self.head_conv),
+                nn.ELU(inplace=True),
+                nn.Conv2d(self.head_conv, self.pose_feat, kernel_size=1, padding=0),
+            )
+            self.id_pose_gate = nn.Sequential(
+                nn.Conv2d(in_channels, in_channels, kernel_size=1),
+                nn.GELU(inplace=True),
+                nn.Conv2d(in_channels, in_channels, kernel_size=1),
+                nn.Sigmoid(inplace=True),
+            )
 
         # img
         self.img_heads = nn.ModuleDict()
@@ -131,12 +154,25 @@ class Decoder(nn.Module):
         # bev
         out_bev = {'bev_raw': x_raw, 'bev_feat': x}
         for name, head in self.bev_heads.items():
+            if name == 'id_feat' or name == 'pose':
+                continue
             out_bev[f'instance_{name}'] = head(x)
 
         # img
         out_img = {'img_raw_feat': feat_cams}
         for name, head in self.img_heads.items():
             out_img[f'img_{name}'] = head(feat_cams)
+            
+        # identity and pose features
+        if self.learn_reid:
+            soft_mask = self.id_pose_gate(x)
+            if self.hard_mask:
+                soft_mask = (soft_mask > 0.5).float()
+            id_feat = x * soft_mask
+            pose_feat = x * (1 - soft_mask)
+            out_bev['instance_mask'] = soft_mask
+            out_bev['instance_id_feat'] = self.bev_heads['id_feat'](id_feat)
+            out_bev['instance_pose'] = self.bev_heads['pose'](pose_feat)
 
         return {**out_bev, **out_img}
     

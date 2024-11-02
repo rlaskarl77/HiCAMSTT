@@ -66,9 +66,10 @@ class STrack(BaseTrack):
         # wait activate
         self._xy = xy
         self._xy_prev = xy_prev
-        self.kalman_filter = None
-        self.mean, self.covariance = None, None
-        self.is_activated = False
+        self.kalman_filter: KalmanFilter = None
+        self.mean: np.ndarray = None
+        self.covariance: np.ndarray = None
+        self.is_activated: bool = False
 
         self.score = score
         self.tracklet_len = 0
@@ -93,7 +94,7 @@ class STrack(BaseTrack):
         self.mean, self.covariance = self.kalman_filter.predict(mean_state, self.covariance)
 
     @staticmethod
-    def multi_predict(stracks):
+    def multi_predict(stracks: List["STrack"]):
         if len(stracks) > 0:
             multi_mean = np.asarray([st.mean.copy() for st in stracks])
             multi_covariance = np.asarray([st.covariance for st in stracks])
@@ -110,13 +111,13 @@ class STrack(BaseTrack):
 
         self.tracklet_len = 0
         self.state = TrackState.Tracked
-        if frame_id == 1:
-            self.is_activated = True
-        # self.is_activated = True
+        # if frame_id == 1:
+        #     self.is_activated = True
+        self.is_activated = True
         self.frame_id = frame_id
         self.start_frame = frame_id
 
-    def re_activate(self, new_track, frame_id, new_id=False):
+    def re_activate(self, new_track, frame_id, new_id=False, update_feature=False):
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean, self.covariance, new_track.xy
         )
@@ -128,8 +129,10 @@ class STrack(BaseTrack):
         self.frame_id = frame_id
         if new_id:
             self.track_id = self.next_id()
+        if update_feature:
+            self.update_features(new_track.curr_feat)
 
-    def update(self, new_track, frame_id, update_feature=False):
+    def update(self, new_track: "STrack", frame_id, update_feature=False):
         """
         Update a matched track
         :type new_track: STrack
@@ -149,7 +152,7 @@ class STrack(BaseTrack):
             self.update_features(new_track.curr_feat)
 
     @property
-    def xy(self):
+    def xy(self) -> np.ndarray:
         # if self.state == TrackState.Lost:
         #     return self.mean[:2]
         if self.mean is None:
@@ -165,7 +168,19 @@ class STrack(BaseTrack):
 
 
 class JDETracker:
-    def __init__(self, conf_thres=0.1, track_buffer=5):
+    def __init__(self,
+                 conf_thres=0.1, 
+                 track_buffer=5,
+                 lapjv_thresh=0.25,
+                 lapjv_thresh2=0.5,
+                 max_spatial_dist=75.,
+                 max_spatial_dist2=100.,
+                 dist_alpha=0.5,
+                 use_reid_tracking=True,
+                 temp_mixing=True,
+                 lambda_1=1.,
+                 lambda_2=1.
+                 ):
         self.tracked_stracks: List[STrack] = []
         self.lost_stracks: List[STrack] = []
         self.removed_stracks: List[STrack] = []
@@ -176,8 +191,19 @@ class JDETracker:
 
         self.kalman_filter = KalmanFilter()
         
-        # self.dist_alpha = 1.0
-        self.dist_alpha = 10. #0.1
+        self.dist_alpha = dist_alpha
+        
+        self.lapjv_thresh = lapjv_thresh
+        self.lapjv_thresh2 = lapjv_thresh2
+        
+        self.max_spatial_dist = max_spatial_dist
+        self.max_spatial_dist2 = max_spatial_dist2
+        
+        self.reid = use_reid_tracking
+        self.use_temporal_mixing = temp_mixing
+        self.lambda_1 = lambda_1
+        self.lambda_2 = lambda_2
+
 
     def update(self, dets, dets_prev, score, reid=None):
         self.frame_id += 1
@@ -189,20 +215,196 @@ class JDETracker:
         remain_inds = score > self.det_thresh - 0.1
         dets = dets[remain_inds]
         dets_prev = dets_prev[remain_inds]
-        # id_feature = id_feature[remain_inds]
         
-        if reid is not None:
-            reid_flag = True
+        if self.reid:
+            reid = reid[remain_inds]
+            assert len(dets) == len(reid), '{} != {}'.format(len(dets), len(reid))
+
+        if len(dets) > 0:
+            """Detections"""
+            detections: List[STrack] = [STrack(xy, xy_prev, s, self.max_time_lost) for
+                          (xy, xy_prev, s) in zip(dets, dets_prev, score)]
+            
+            if self.reid:
+                """Update reid features"""
+                for track, feat in zip(detections, reid):
+                    track.update_features(feat)
         else:
-            reid_flag = False
+            detections: List[STrack] = []
+        
+        tracked_stracks: List[STrack] = self.tracked_stracks
+
+        ''' Step 2:association'''
+        '''
+            Step 2.1: Backward prediction with activated tracks
+            Step 2.2: Forward prediction with lost + unmatched tracks
+        '''
+        
+        strack_pool_xy = [track.xy for track in tracked_stracks]
+        detections_xy_prev = [det.xy_prev for det in detections]
+
+        dists = matching.center_distance(strack_pool_xy, detections_xy_prev)
+        
+        if self.reid:
+            # calculate reid distance
+            reid_dists = matching.embedding_distance(tracked_stracks, detections) / 2.0
+            # normalize center distance
+            dists = np.clip(dists, a_min=0., a_max=self.max_spatial_dist) / self.max_spatial_dist
+            
+            if self.use_temporal_mixing:
+                strack_pool_t = [[track.frame_id] for track in tracked_stracks]
+                detections_t = [[self.frame_id-1] for det in detections]
+                temp_dist = matching.center_distance(strack_pool_t, detections_t)
+                temp_weight = 1 / (self.lambda_1 + np.exp(-1. * self.lambda_2 * temp_dist))
+                dists = (1 - temp_weight) * dists + temp_weight * reid_dists
+            
+            else:
+                dists = (1-self.dist_alpha) * dists + reid_dists * self.dist_alpha # 0.5 is the weight for reid distance
+            
+            matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.lapjv_thresh)
+        
+        else:
+            matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.max_spatial_dist)
+
+        for itracked, idet in matches:
+            track = tracked_stracks[itracked]
+            det = detections[idet]
+            if track.state == TrackState.Tracked:
+                if self.reid:
+                    track.update(det, self.frame_id, update_feature=True)
+                else:
+                    track.update(det, self.frame_id, update_feature=False)
+                activated_starcks.append(track)
+            else:
+                if self.reid:
+                    track.re_activate(det, self.frame_id, new_id=False, update_feature=True)
+                else:
+                    track.re_activate(det, self.frame_id, new_id=False, update_feature=False)
+                refind_stracks.append(track)
+        
+        for it in u_track:
+            track = tracked_stracks[it]
+            lost_stracks.append(track)
+        
+        # joint lost stracks as unconfirmed
+        unconfirmed = joint_stracks(lost_stracks, self.lost_stracks)
+        
+        # Predict the current location with KF
+        STrack.multi_predict(unconfirmed)
+
+        '''
+            Deal with unconfirmed tracks, which are:
+            (1) Misdetected tracks
+            (2) Long-term lost tracks
+            (3) Misdetections in current frame
+        '''
+        detections = [detections[i] for i in u_detection]
+        detections_xy = [det.xy for det in detections]
+        unconfirmed_xy = [track.xy for track in unconfirmed]
+        
+        dists = matching.center_distance(unconfirmed_xy, detections_xy)
+        
+        if self.reid:
+            # calculate reid distance
+            reid_dists = matching.embedding_distance(unconfirmed, detections) / 2.0
+            # normalize center distance
+            # print(np.max(dists), np.min(dists), np.max(dists)/self.lapjv_thresh2) if len(dists) > 0 and len(dists[0])>0 else None
+            dists = np.clip(dists, a_min=0., a_max=self.max_spatial_dist2) / self.max_spatial_dist2
+            
+            if self.use_temporal_mixing:
+                unconfirmed_t = [[track.frame_id] for track in unconfirmed]
+                detections_t = [[self.frame_id-1] for det in detections]
+                temp_dist = matching.center_distance(unconfirmed_t, detections_t)
+                temp_weight = 1 / (self.lambda_1 + np.exp(-1. * self.lambda_2 * temp_dist))
+                dists = (1 - temp_weight) * dists + temp_weight * reid_dists
+            
+            else:
+                dists = (1-self.dist_alpha) * dists + reid_dists * self.dist_alpha # 0.5 is the weight for reid distance
+            
+            matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=self.lapjv_thresh2)
+        
+        else:
+            matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=self.max_spatial_dist2)
+        
+        
+        for itracked, idet in matches:
+            track = unconfirmed[itracked]
+            det = detections[idet]
+            if track.state == TrackState.Tracked:
+                if self.reid:
+                    track.update(det, self.frame_id, update_feature=True)
+                else:
+                    track.update(det, self.frame_id, update_feature=False)
+                activated_starcks.append(track)
+            else:
+                if self.reid:
+                    track.re_activate(det, self.frame_id, new_id=False, update_feature=True)
+                else:
+                    track.re_activate(det, self.frame_id, new_id=False, update_feature=False)
+                refind_stracks.append(track)
+        
+        
+        for it in u_unconfirmed:
+            track = tracked_stracks[it]
+            if not track.state == TrackState.Lost:
+                track.mark_lost()
+                lost_stracks.append(track)
+
+        """ Step 3: Init new stracks"""
+        for inew in u_detection:
+            track = detections[inew]
+            if track.score < self.det_thresh:
+                continue
+            track.activate(self.kalman_filter, self.frame_id)
+            activated_starcks.append(track)
+        
+        """ Step 5: Update state"""
+        for track in self.lost_stracks:
+            if self.frame_id - track.end_frame > self.max_time_lost:
+                track.mark_removed()
+                removed_stracks.append(track)
+
+        self.tracked_stracks = [t for t in self.tracked_stracks if t.state == TrackState.Tracked]
+        self.tracked_stracks = joint_stracks(self.tracked_stracks, activated_starcks)
+        self.tracked_stracks = joint_stracks(self.tracked_stracks, refind_stracks)
+        self.lost_stracks = sub_stracks(self.lost_stracks, self.tracked_stracks)
+        self.lost_stracks.extend(lost_stracks)
+        self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
+        self.removed_stracks.extend(removed_stracks)
+        self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
+        # get scores of lost tracks
+        output_stracks = [track for track in self.tracked_stracks if track.is_activated]
+
+        # print('===========Frame {}=========='.format(self.frame_id))
+        # print('Activated: {}'.format([track.track_id for track in activated_starcks]))
+        # print('Refind: {}'.format([track.track_id for track in refind_stracks]))
+        # print('Lost: {}'.format([track.track_id for track in lost_stracks]))
+        # print('Removed: {}'.format([track.track_id for track in removed_stracks]))
+
+        return output_stracks
+
+
+    def update_old(self, dets, dets_prev, score, reid=None):
+        self.frame_id += 1
+        activated_starcks = []
+        refind_stracks = []
+        lost_stracks = []
+        removed_stracks = []
+
+        remain_inds = score > self.det_thresh - 0.1
+        dets = dets[remain_inds]
+        dets_prev = dets_prev[remain_inds]
+        
+        if self.reid:
+            reid = reid[remain_inds]
+            assert len(dets) == len(reid), '{} != {}'.format(len(dets), len(reid))
 
         if len(dets) > 0:
             """Detections"""
             detections = [STrack(xy, xy_prev, s, self.max_time_lost) for
                           (xy, xy_prev, s) in zip(dets, dets_prev, score)]
-            # [print(det.xy.shape) for det in detections]
             
-            if reid_flag:
+            if self.reid:
                 """Update reid features"""
                 for track, feat in zip(detections, reid):
                     track.update_features(feat)
@@ -210,40 +412,55 @@ class JDETracker:
             detections = []
 
         """ Add newly detected tracklets to tracked_stracks"""
-        unconfirmed = []
+        unconfirmed: List[STrack] = []
         tracked_stracks: List[STrack] = []
         for track in self.tracked_stracks:
-            if not track.is_activated:
-                unconfirmed.append(track)
-            else:
+            if track.is_activated:
                 tracked_stracks.append(track)
+            else:
+                unconfirmed.append(track)
 
         ''' Step 2:association'''
+        '''
+            Step 2.1: Backward prediction with activated tracks
+            Step 2.2: Forward prediction with lost + unmatched tracks
+        '''
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
         # Predict the current location with KF
         STrack.multi_predict(strack_pool)
 
         strack_pool_xy = [track.xy for track in strack_pool]
-        detections_xy_prev = [det.xy_prev for det in detections]
+        detections_xy_prev = [det.xy for det in detections]
 
         dists = matching.center_distance(strack_pool_xy, detections_xy_prev)
         
-        if reid_flag:
+        if self.reid:
             # calculate reid distance
-            # [print(track.smooth_feat.shape) for track in strack_pool]
-            # [print(det.curr_feat.shape) for det in detections]
-            reid_dists = matching.embedding_distance(strack_pool, detections)
+            reid_dists = matching.embedding_distance(strack_pool, detections) / 2.0
+            # normalize center distance
+            # print(np.max(dists), np.min(dists), np.max(dists) / self.lapjv_thresh) if len(dists) > 0 else None
+            dists = np.clip(dists, a_min=0., a_max=self.lapjv_thresh) / self.lapjv_thresh
             
-            # dists = dists + reid_dists * 0.5 # 0.5 is the weight for reid distance
-            dists = dists + reid_dists * self.dist_alpha # 0.5 is the weight for reid distance
+            if self.use_temporal_mixing:
+                strack_pool_t = [[track.frame_id] for track in strack_pool]
+                detections_t = [[self.frame_id-1] for det in detections]
+                temp_dist = matching.center_distance(strack_pool_t, detections_t)
+                temp_weight = 1 / (self.lambda_1 + np.exp(-1. * self.lambda_2 * temp_dist))
+                dists = (1 - temp_weight) * dists + temp_weight * reid_dists
+            
+            else:
+                dists = (1-self.dist_alpha) * dists + reid_dists * self.dist_alpha # 0.5 is the weight for reid distance
+            
+            matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.25)
         
-        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=75)
+        else:
+            matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.lapjv_thresh)
 
         for itracked, idet in matches:
             track = strack_pool[itracked]
             det = detections[idet]
             if track.state == TrackState.Tracked:
-                if reid_flag:
+                if self.reid:
                     track.update(det, self.frame_id, update_feature=True)
                 else:
                     track.update(det, self.frame_id, update_feature=False)
@@ -262,19 +479,45 @@ class JDETracker:
         detections = [detections[i] for i in u_detection]
         detections_xy = [det.xy_prev for det in detections]
         unconfirmed_xy = [track.xy for track in unconfirmed]
-        # dists = matching.iou_distance(unconfirmed, detections)
+        
         dists = matching.center_distance(unconfirmed_xy, detections_xy)
-        matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=100)
+        
+        if self.reid:
+            # calculate reid distance
+            reid_dists = matching.embedding_distance(unconfirmed, detections) / 2.0
+            # normalize center distance
+            print(np.max(dists), np.min(dists), np.max(dists)/self.lapjv_thresh2) if len(dists) > 0 and len(dists[0])>0 else None
+            dists = np.clip(dists, a_min=0., a_max=self.lapjv_thresh2) / self.lapjv_thresh2
+            
+            if self.use_temporal_mixing:
+                unconfirmed_t = [[track.frame_id] for track in unconfirmed]
+                detections_t = [[self.frame_id-1] for det in detections]
+                temp_dist = matching.center_distance(unconfirmed_t, detections_t)
+                temp_weight = 1 / (self.lambda_1 + np.exp(-1. * self.lambda_2 * temp_dist))
+                dists = (1 - temp_weight) * dists + temp_weight * reid_dists
+            
+            else:
+                # dists = dists + reid_dists * 0.5 # 0.5 is the weight for reid distance
+                dists = (1-self.dist_alpha) * dists + reid_dists * self.dist_alpha # 0.5 is the weight for reid distance
+            
+            matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=0.5)
+        
+        else:
+            matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=self.lapjv_thresh2)
+        
+        
         for itracked, idet in matches:
-            if reid_flag:
+            if self.reid:
                 unconfirmed[itracked].update(detections[idet], self.frame_id, update_feature=True)
             else:
                 unconfirmed[itracked].update(detections[idet], self.frame_id, update_feature=False)
             activated_starcks.append(unconfirmed[itracked])
+        
         for it in u_unconfirmed:
             track = unconfirmed[it]
-            track.mark_removed()
-            removed_stracks.append(track)
+            if track.state != TrackState.Lost: # keep lost tracks in the lost list
+                track.mark_removed()
+                removed_stracks.append(track)
 
         """ Step 3: Init new stracks"""
         for inew in u_detection:
@@ -283,6 +526,7 @@ class JDETracker:
                 continue
             track.activate(self.kalman_filter, self.frame_id)
             activated_starcks.append(track)
+        
         """ Step 5: Update state"""
         for track in self.lost_stracks:
             if self.frame_id - track.end_frame > self.max_time_lost:

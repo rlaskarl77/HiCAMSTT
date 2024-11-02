@@ -19,7 +19,9 @@ class Segnet(nn.Module):
                  num_cameras=None,
                  z_sign=1,
                  encoder_type='swin_t',
-                 device=torch.device('cuda')):
+                 device=torch.device('cuda'),
+                 decoder_args=None,
+                 ):
         super(Segnet, self).__init__()
         assert (encoder_type in ['res101', 'res50', 'effb0', 'effb4', 'res18', 'vgg11', 'swin_t'])
 
@@ -74,6 +76,7 @@ class Segnet(nn.Module):
             in_channels=latent_dim,
             n_classes=num_classes,
             feat2d=self.feat2d_dim,
+            **decoder_args
         )
 
         # Weights
