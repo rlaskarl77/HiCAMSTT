@@ -1,3 +1,4 @@
+import os
 import os.path as osp
 import torch
 import torch.nn.functional as F
@@ -8,6 +9,7 @@ from PIL import Image, ImageDraw
 import numpy as np
 import kornia
 import cv2
+from sklearn.manifold import TSNE
 
 from models import Segnet, MVDet, Liftnet, Bevformernet, MVDetr
 from models.loss import FocalLoss, compute_rot_loss
@@ -76,10 +78,10 @@ class WorldTrackModel(pl.LightningModule):
         # Decoder
         self.learn_reid = learn_reid
         self.decoder_args = {
-            learn_reid: learn_reid,
-            reid_feat: reid_feat,
-            pose_feat: pose_feat,
-            hard_mask: hard_mask,
+            "learn_reid": learn_reid,
+            "reid_feat": reid_feat,
+            "pose_feat": pose_feat,
+            "hard_mask": hard_mask,
         }
         # contrastive loss
         self.temperature = temperature
@@ -93,18 +95,17 @@ class WorldTrackModel(pl.LightningModule):
         
         # Tracker
         self.tracker_args = {
-            use_reid_tracking: use_reid_tracking,
-            conf_threshold: conf_threshold,
-            conf_thres: conf_thres,
-            track_buffer: track_buffer,
-            lapjv_thresh: lapjv_thresh,
-            lapjv_thresh2: lapjv_thresh2,
-            max_spatial_dist: max_spatial_dist,
-            max_spatial_dist2: max_spatial_dist2,
-            dist_alpha: dist_alpha,
-            temp_mixing: temp_mixing,
-            lambda_1: lambda_1,
-            lambda_2: lambda_2,
+            "use_reid_tracking": use_reid_tracking,
+            "conf_thres": conf_threshold,
+            "track_buffer": track_buffer,
+            "lapjv_thresh": lapjv_thresh,
+            "lapjv_thresh2": lapjv_thresh2,
+            "max_spatial_dist": max_spatial_dist,
+            "max_spatial_dist2": max_spatial_dist2,
+            "dist_alpha": dist_alpha,
+            "temp_mixing": temp_mixing,
+            "lambda_1": lambda_1,
+            "lambda_2": lambda_2,
         }
         self.test_tracker = JDETracker(**self.tracker_args)
 
@@ -161,7 +162,7 @@ class WorldTrackModel(pl.LightningModule):
         if self.test_mode == 'tracking':
             self.moda_gt_list, self.moda_pred_list = [], []
             self.mota_gt_list, self.mota_pred_list = [], []
-            self.mota_seq_gt_list, self.mota_seq_pred_list = []
+            self.mota_seq_gt_list, self.mota_seq_pred_list = [], []
         
         elif self.test_mode == 'feature_distance':
             self.max_features = 100
@@ -733,16 +734,47 @@ class WorldTrackModel(pl.LightningModule):
                 self.feat_total_random += 1
         
         elif self.test_mode == 'save_features':
+            
+            log_dir = self.trainer.log_dir
+            assert log_dir is not None, 'log_dir should not be None'
+            
+            if not osp.exists(osp.join(log_dir, 'feat')):
+                os.makedirs(osp.join(log_dir, 'feat'))
+            
             item, target = batch
             
-            feat = output['instance_id_feat']
-            pid = target['pid_bev']
+            feat_bev = output['instance_id_feat']
+            pid_bev = target['pid_bev']
             
-            feat, pid, counts = self.get_feature_vec_with_pid(feat, pid)
+            feat, pid, counts = self.get_feature_vec_with_pid(feat_bev, pid_bev)
             
-            for i, count in enumerate(counts):
-                self.feat_dist_list.append(feat[pid_counts[:i].sum():pid_counts[:i+1].sum()])
+            for i, frame in enumerate(item['frame']):
+                pid_i = pid[counts[:i].sum():counts[:i+1].sum()]
+                feat_i = feat[counts[:i].sum():counts[:i+1].sum()]
+                
+                for p, f in zip(pid_i, feat_i):
+                    f = f.cpu().detach().numpy()
+                    np.save(osp.join(log_dir, f'feat/{p}_{int(frame.cpu())}.npy'), f)
 
+            if self.learn_cont_pose:
+                
+                if not osp.exists(osp.join(log_dir, 'pose')):
+                    os.makedirs(osp.join(log_dir, 'pose'))
+                
+                pose_bev = output['instance_pose']
+                vel_bev = target['offset_bev'][:, 2:]
+                pose, _, _ = self.get_feature_vec_with_pid(pose_bev, pid_bev)
+                vel, _, _ = self.get_feature_vec_with_pid(vel_bev, pid_bev)
+                
+                for i, frame in enumerate(item['frame']):
+                    pose_i = pose[counts[:i].sum():counts[:i+1].sum()]
+                    vel_i = vel[counts[:i].sum():counts[:i+1].sum()]
+                    
+                    for v, f in zip(vel_i, pose_i):
+                        f = f.cpu().detach().numpy()
+                        v = v.cpu().detach().numpy()
+                        v = "_".join([str(x) for x in v])
+                        np.save(osp.join(log_dir, f'pose/{v}_{int(frame.cpu())}.npy'), f)
 
     def on_test_epoch_end(self):
         
@@ -834,6 +866,48 @@ class WorldTrackModel(pl.LightningModule):
             plt.tight_layout()
             writer.add_figure(f'plot/feature_distance', fig, global_step=self.global_step)
             plt.close(fig)
+        
+        elif self.test_mode == 'save_features':
+            # load all features
+            log_dir = self.trainer.log_dir
+            feat_dir = osp.join(log_dir, 'feat')
+            features = []
+            pids = []
+            
+            for file in os.listdir(feat_dir):
+                if file.endswith('.npy'):
+                    pid = int(file.split('_')[0])
+                    feat = np.load(osp.join(feat_dir, file))
+                    features.append(feat)
+                    pids.append(pid)
+            
+            features = np.array(features)
+            pids = np.array(pids)
+            
+            tsne = TSNE(n_components=2, random_state=42, perplexity=5)
+            tsne_results = tsne.fit_transform(features)
+            
+            self.visualize_tsne(tsne_results, pids)
+            
+            if self.learn_cont_pose:
+                pose_dir = osp.join(log_dir, 'pose')
+                poses = []
+                velocities = []
+                for file in os.listdir(pose_dir):
+                    if file.endswith('.npy'):
+                        pose = np.load(osp.join(pose_dir, file))
+                        # Assuming filename format is 'pose_u_v_frame.npy'
+                        velocity = tuple(map(float, file.split('_')[1:3]))  
+                        poses.append(pose)
+                        velocities.append(velocity)
+                
+                poses = np.array(poses)
+                velocities = np.array(velocities)
+                
+                tsne = TSNE(n_components=2, random_state=42)
+                tsne_pose_results = tsne.fit_transform(poses)
+                
+                self.visualize_tsne_pose(tsne_pose_results, velocities)
 
 
     def predict_step(self, batch, batch_idx):
@@ -1072,7 +1146,64 @@ class WorldTrackModel(pl.LightningModule):
         plt.tight_layout()
         writer.add_figure(f'predict/{batch_idx}', fig, global_step=self.global_step)
         
+
+    def visualize_tsne(self, tsne_results, pids):
         
+        writer = self.logger.experiment
+        
+        plt.figure(figsize=(10, 8))
+        scatter = plt.scatter(tsne_results[:, 0], tsne_results[:, 1], c=pids, cmap='viridis', alpha=0.5)
+        plt.colorbar(scatter, label='PID')
+        plt.title('t-SNE of Feature Vectors')
+        # plt.xlabel('t-SNE 1')
+        # plt.ylabel('t-SNE 2')
+        
+        writer.add_figure('tsne visualization of identity features', 
+                          plt.gcf(), global_step=self.global_step)
+        
+
+    def visualize_tsne_pose(self, tsne_pose_results, velocities):
+        
+        
+        writer = self.logger.experiment
+        
+        def calculate_velocity_magnitude_and_direction(velocities):
+            magnitudes = np.linalg.norm(velocities, axis=1)
+            directions = np.arctan2(velocities[:, 1], velocities[:, 0])  # Angle in radians
+            return magnitudes, directions
+        
+        def velocities_to_hsv(magnitudes, directions):
+            # Normalize magnitudes to [0, 1]
+            magnitudes = (magnitudes - magnitudes.min()) / (magnitudes.max() - magnitudes.min())
+            
+            # Normalize directions to [0, 1]
+            directions = (directions + np.pi) / (2 * np.pi)
+            
+            hsv_colors = np.zeros((len(magnitudes), 3))
+            hsv_colors[:, 0] = directions  # Hue
+            hsv_colors[:, 1] = magnitudes  # Saturation
+            hsv_colors[:, 2] = 1.0  # Value
+            return hsv_colors
+
+        def hsv_to_rgb(hsv_colors):
+            rgb_colors = mcolors.hsv_to_rgb(hsv_colors)
+            return rgb_colors
+        
+        magnitudes, directions = calculate_velocity_magnitude_and_direction(velocities)
+        hsv_colors = velocities_to_hsv(magnitudes, directions)
+        rgb_colors = hsv_to_rgb(hsv_colors)
+        
+        plt.figure(figsize=(10, 8))
+        scatter = plt.scatter(tsne_pose_results[:, 0], tsne_pose_results[:, 1], 
+                              c=rgb_colors, alpha=0.5)
+        plt.colorbar(scatter, label='Velocity (u, v)')
+        plt.title('t-SNE of Pose Embeddings')
+        
+        writer.add_figure('tsne visualization of pose embeddings', 
+                          plt.gcf(), global_step=self.global_step)
+        
+    
+    
 if __name__ == '__main__':
     from lightning.pytorch.cli import LightningCLI
     torch.set_float32_matmul_precision('medium')
