@@ -6,7 +6,6 @@ from torch.utils.data import DataLoader
 
 from datasets.multiviewx_dataset import MultiviewX
 from datasets.wildtrack_dataset import Wildtrack
-from datasets.wildtrack_dataset_3cam import Wildtrack3cam
 from datasets.hdc_dataset import HDC
 from datasets.bev_dataset import BevDataset
 from datasets.sampler import TemporalSampler
