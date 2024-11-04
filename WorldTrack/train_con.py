@@ -191,6 +191,9 @@ class WorldTrackModel(pl.LightningModule):
         elif self.test_mode == 'training' or self.test_mode == 'prediction':
             pass
         
+        elif self.test_mode == 'save_features':
+            pass
+        
         else:
             raise ValueError(f'Unknown test mode {self.test_mode}')
 
@@ -728,6 +731,17 @@ class WorldTrackModel(pl.LightningModule):
                 if p == min_p_random:
                     self.feat_correct_random += 1
                 self.feat_total_random += 1
+        
+        elif self.test_mode == 'save_features':
+            item, target = batch
+            
+            feat = output['instance_id_feat']
+            pid = target['pid_bev']
+            
+            feat, pid, counts = self.get_feature_vec_with_pid(feat, pid)
+            
+            for i, count in enumerate(counts):
+                self.feat_dist_list.append(feat[pid_counts[:i].sum():pid_counts[:i+1].sum()])
 
 
     def on_test_epoch_end(self):
@@ -735,13 +749,21 @@ class WorldTrackModel(pl.LightningModule):
         if self.test_mode == 'tracking':
         
             log_dir = self.trainer.log_dir if self.trainer.log_dir is not None else '../data/cache'
-
+            
+            # detection
+            '''
+            unit: 2.5cm for wildtrack, multiviewx
+                    1cm for aicity_lt, aicity
+            '''
+            unit = 2.5 if self.test_dataset == 'wildtrack' or self.test_dataset == 'multiviewx' \
+                else 1. if self.test_dataset == 'aicity_lt' or self.test_dataset == 'aicity' \
+                else 1.
             # detection
             pred_path = osp.join(log_dir, 'moda_pred.txt')
             gt_path = osp.join(log_dir, 'moda_gt.txt')
             np.savetxt(pred_path, np.array(self.moda_pred_list), '%f', delimiter=' ', newline='\n')
             np.savetxt(gt_path, np.array(self.moda_gt_list), '%d', delimiter=' ', newline='\n')
-            recall, precision, moda, modp = modMetricsCalculator(osp.abspath(pred_path), osp.abspath(gt_path))
+            recall, precision, moda, modp = modMetricsCalculator(osp.abspath(pred_path), osp.abspath(gt_path), unit)
             self.log(f'detect/recall', recall)
             self.log(f'detect/precision', precision)
             self.log(f'detect/moda', moda)
@@ -878,6 +900,9 @@ class WorldTrackModel(pl.LightningModule):
 
 
     def plot_data(self, target, output, batch_idx=0):
+        
+        writer = self.logger.experiment
+        
         center_e = output['instance_center']
         center_g = target['center_bev']
 
@@ -1034,7 +1059,13 @@ class WorldTrackModel(pl.LightningModule):
             cams[cam_idx] = img
         
         # draw mosaic
-        mosaic = np.concatenate([cams[0], cams[1], cams[2]], axis=1)
+        # mosaic tiles
+        r = np.ceil(np.sqrt(S)).astype(int)
+        mosaic = np.zeros((r*720, r*1280, 3), dtype=np.uint8)
+        for cam_idx in range(S):
+            x = cam_idx % r
+            y = cam_idx // r
+            mosaic[y*720:(y+1)*720, x*1280:(x+1)*1280] = cams[cam_idx]
         fig = plt.figure(figsize=(12, 8))
         plt.imshow(mosaic)
         plt.axis('off')

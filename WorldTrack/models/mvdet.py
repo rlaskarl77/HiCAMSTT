@@ -19,7 +19,7 @@ class MVDet(nn.Module):
                  feat2d_dim=128,
                  encoder_type='res18',
                  device=torch.device('cuda'),
-                 decoder_args=None,):
+                 decoder_args={},):
         super().__init__()
         assert (encoder_type in ['res101', 'res50', 'res18', 'res34', 'effb0', 'effb4', 'swin_t'])
 
@@ -172,3 +172,7 @@ class MVDet(nn.Module):
         out_dict.update(out_img)
 
         return out_dict
+
+if __name__ == '__main__':
+    model = MVDet(256, 256, 256, num_cameras=1, num_classes=1)
+    print(model)

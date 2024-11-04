@@ -85,9 +85,9 @@ class Decoder(nn.Module):
             )
             self.id_pose_gate = nn.Sequential(
                 nn.Conv2d(in_channels, in_channels, kernel_size=1),
-                nn.GELU(inplace=True),
+                nn.GELU(),
                 nn.Conv2d(in_channels, in_channels, kernel_size=1),
-                nn.Sigmoid(inplace=True),
+                nn.Sigmoid(),
             )
 
         # img
