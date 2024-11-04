@@ -291,7 +291,7 @@ class WorldTrackModel(pl.LightningModule):
             if i.nelement() == 1:
                 idx.append(i.item())
         if len(idx) != len(frames):
-            return (None, None)
+            return None
         else:
             return self.temporal_cache[idx]
 
@@ -467,7 +467,8 @@ class WorldTrackModel(pl.LightningModule):
                     else:
                         mask[i, j] = 0
             
-            loss = (-logits * mask + torch.logsumexp(logits, dim=1, keepdim=True) * (1-mask)).mean()
+            loss = (-torch.logsumexp(logits, dim=1, keepdim=True) * mask \
+                + torch.logsumexp(logits, dim=1, keepdim=True) * (1-mask)).mean()
             
         elif self.cont_type == 'moco':
             frames = target['frame']
@@ -500,16 +501,18 @@ class WorldTrackModel(pl.LightningModule):
         
         if self.learn_cont_pose: # contrastive loss
             pose_feat, _, _ = self.get_feature_vec_with_pid(pose_e, target['pid_bev'])
+            pose_gt, _, _ = self.get_feature_vec_with_pid(pose_g, target['pid_bev'])
             
             pose_feat = F.normalize(pose_feat, dim=1)
             
             sim_matrix = torch.matmul(pose_feat, pose_feat.t())
             logits = sim_matrix / self.temperature_pose
             
-            mask = (ori_g @ ori_g.t() + 1) / 2
+            mask = ((pose_gt @ pose_gt.t() + 1) / 2).clamp(0, 1)
             mask = mask * (mask > self.pose_cont_thresh).float()
             
-            loss = (-logits * mask + torch.logsumexp(logits, dim=1, keepdim=True) * (1-mask)).mean()
+            loss = (-torch.logsumexp(logits * mask, dim=1, keepdim=True) \
+                + torch.logsumexp(logits * (1-mask), dim=1, keepdim=True)).mean()
         
         else: # pose guidance
             assert pose_e.shape[1] == 2, 'pose_e shape should be 2'

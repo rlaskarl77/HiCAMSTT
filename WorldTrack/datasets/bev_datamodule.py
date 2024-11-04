@@ -37,8 +37,6 @@ class BevDataModule(pl.LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
         if 'wildtrack' in self.dataset.lower():
-            if '3cam' in self.dataset.lower():
-                base = Wildtrack3cam(self.data_dir)
             base = Wildtrack(self.data_dir)
         elif 'multiviewx' in self.dataset.lower():
             base = MultiviewX(self.data_dir)
