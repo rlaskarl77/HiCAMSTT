@@ -2,12 +2,11 @@ model:
   # decoder
   learn_reid: True
   reid_feat: 128
-  pose_feat: 128
+  pose_feat: 4
   hard_mask: False
   learn_reid: True
-  learn_pose: True
+  learn_pose: False
   id_pose_decompose: True
-  temperature: 0.03
   # tracker
   use_temporal_cache: True
   max_detections: 60
@@ -24,7 +23,8 @@ model:
   lambda_2: 1.
   # contrastive learning
   cont_type: simclr
-  learn_cont_pose: True
+  temperature: 0.03
+  learn_cont_pose: False
   temperature_pose: 0.03
   pose_cont_thresh: 0.8
   # test mode

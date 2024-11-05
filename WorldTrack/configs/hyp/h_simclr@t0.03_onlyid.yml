@@ -7,7 +7,6 @@ model:
   learn_reid: True
   learn_pose: True
   id_pose_decompose: True
-  temperature: 0.03
   # tracker
   use_temporal_cache: True
   max_detections: 60
@@ -24,6 +23,7 @@ model:
   lambda_2: 1.
   # contrastive learning
   cont_type: simclr
+  temperature: 0.03
   learn_cont_pose: True
   temperature_pose: 0.03
   pose_cont_thresh: 0.8

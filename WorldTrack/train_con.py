@@ -35,6 +35,8 @@ class WorldTrackModel(pl.LightningModule):
             feat2d_dim=128,
             # decoder
             learn_reid=True,
+            learn_pose=True,
+            id_pose_decompose=True,
             reid_feat=128,
             pose_feat=128,
             hard_mask=False,
@@ -47,9 +49,8 @@ class WorldTrackModel(pl.LightningModule):
             use_reid_tracking=True,
             use_temporal_cache=True,
             max_detections=60,
-            conf_threshold=0.25,
+            conf_threshold=0.5,
             max_cache=32,
-            conf_thres=0.1, 
             track_buffer=5,
             lapjv_thresh=0.25,
             lapjv_thresh2=0.5,
@@ -79,6 +80,8 @@ class WorldTrackModel(pl.LightningModule):
         self.learn_reid = learn_reid
         self.decoder_args = {
             "learn_reid": learn_reid,
+            "learn_pose": learn_pose,
+            "id_pose_decompose": id_pose_decompose,
             "reid_feat": reid_feat,
             "pose_feat": pose_feat,
             "hard_mask": hard_mask,
@@ -92,6 +95,9 @@ class WorldTrackModel(pl.LightningModule):
         
         if self.cont_type == 'moco':
             self.moco_memory_bank = dict()
+        
+        assert pose_feat == 4 or (learn_pose and learn_cont_pose), \
+            'pose_feat should be 4 (rot, val) if learn_pose is False'
         
         # Tracker
         self.tracker_args = {
@@ -515,10 +521,11 @@ class WorldTrackModel(pl.LightningModule):
                 + torch.logsumexp(logits * (1-mask), dim=1, keepdim=True)).mean()
         
         else: # pose guidance
-            assert pose_e.shape[1] == 2, 'pose_e shape should be 2'
+            assert pose_e.shape[1] == 4, 'pose_e shape should be 4'
             valid_g = target['valid_bev']
+            pseudo_label = torch.cat([ori_g, offset_g[:, 2:]], dim=1)
             loss = torch.nn.functional.smooth_l1_loss(
-                pose_e, ori_g, reduction='none').sum(dim=1, keepdim=True)
+                pose_e, pseudo_label, reduction='none').sum(dim=1, keepdim=True)
             loss = basic.reduce_masked_mean(loss, valid_g)
         
         return loss
