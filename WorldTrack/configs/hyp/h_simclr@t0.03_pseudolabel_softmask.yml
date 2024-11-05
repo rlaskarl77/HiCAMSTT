@@ -5,7 +5,7 @@ model:
   pose_feat: 4
   hard_mask: False
   learn_reid: True
-  learn_pose: False
+  learn_pose: True
   id_pose_decompose: True
   # tracker
   use_temporal_cache: True

@@ -78,6 +78,7 @@ class WorldTrackModel(pl.LightningModule):
         
         # Decoder
         self.learn_reid = learn_reid
+        self.learn_pose = learn_pose
         self.decoder_args = {
             "learn_reid": learn_reid,
             "learn_pose": learn_pose,
@@ -96,10 +97,11 @@ class WorldTrackModel(pl.LightningModule):
         if self.cont_type == 'moco':
             self.moco_memory_bank = dict()
         
-        assert pose_feat == 4 or (learn_pose and learn_cont_pose), \
+        assert pose_feat == 4 or (learn_pose and learn_cont_pose) or (not learn_pose), \
             'pose_feat should be 4 (rot, val) if learn_pose is False'
         
         # Tracker
+        self.use_reid_tracking = use_reid_tracking
         self.tracker_args = {
             "use_reid_tracking": use_reid_tracking,
             "conf_thres": conf_threshold,
@@ -473,9 +475,18 @@ class WorldTrackModel(pl.LightningModule):
                     else:
                         mask[i, j] = 0
             
-            loss = (-torch.logsumexp(logits, dim=1, keepdim=True) * mask \
-                + torch.logsumexp(logits, dim=1, keepdim=True) * (1-mask)).mean()
+            label = ~torch.eye(len(pid), device=self.device).bool()
             
+            logits = (logits[label]).reshape(len(pid), -1)
+            mask = (mask[label]).reshape(len(pid), -1)
+            # Compute NT-Xent loss
+            log_prob = F.log_softmax(logits, dim=1)
+            # Apply mask to log_prob
+            log_prob_pos = (mask * log_prob).sum(dim=1) / (mask.sum(dim=1) + 1e-6)
+            log_prob_neg = ((1 - mask) * log_prob).sum(dim=1) / (1 - mask).sum(dim=1)
+            # To balance the positive and negative samples
+            loss = -log_prob_pos.mean() + log_prob_neg.mean()
+        
         elif self.cont_type == 'moco':
             frames = target['frame']
             
@@ -498,37 +509,43 @@ class WorldTrackModel(pl.LightningModule):
     
     def loss_pose(self, target, output):
         
-        pose_e = output['instance_pose'] # direction
-        offset_g = target['offset_bev'] # velocity
-        pose_g = offset_g[:, 2:]
+        if self.learn_pose:
         
-        # normalize velocity
-        ori_g = pose_g / (torch.norm(pose_g, dim=1, keepdim=True) + 1e-6)
+            pose_e = output['instance_pose'] # direction
+            offset_g = target['offset_bev'] # velocity
+            pose_g = offset_g[:, 2:]
+            
+            # normalize velocity
+            ori_g = pose_g / (torch.norm(pose_g, dim=1, keepdim=True) + 1e-6)
+            
+            if self.learn_cont_pose: # contrastive loss
+                pose_feat, _, _ = self.get_feature_vec_with_pid(pose_e, target['pid_bev'])
+                pose_gt, _, _ = self.get_feature_vec_with_pid(pose_g, target['pid_bev'])
+                
+                pose_feat = F.normalize(pose_feat, dim=1)
+                
+                sim_matrix = torch.matmul(pose_feat, pose_feat.t())
+                logits = sim_matrix / self.temperature_pose
+                
+                mask = ((pose_gt @ pose_gt.t() + 1) / 2).clamp(0, 1)
+                mask = mask * (mask > self.pose_cont_thresh).float()
+                
+                loss = (-torch.logsumexp(logits * mask, dim=1, keepdim=True) \
+                    + torch.logsumexp(logits * (1-mask), dim=1, keepdim=True)).mean()
+            
+            else: # pose guidance
+                assert pose_e.shape[1] == 4, 'pose_e shape should be 4'
+                valid_g = target['valid_bev']
+                pseudo_label = torch.cat([ori_g, offset_g[:, 2:]], dim=1)
+                loss = torch.nn.functional.smooth_l1_loss(
+                    pose_e, pseudo_label, reduction='none').sum(dim=1, keepdim=True)
+                loss = basic.reduce_masked_mean(loss, valid_g)
+            
+            return loss
         
-        if self.learn_cont_pose: # contrastive loss
-            pose_feat, _, _ = self.get_feature_vec_with_pid(pose_e, target['pid_bev'])
-            pose_gt, _, _ = self.get_feature_vec_with_pid(pose_g, target['pid_bev'])
+        else:
             
-            pose_feat = F.normalize(pose_feat, dim=1)
-            
-            sim_matrix = torch.matmul(pose_feat, pose_feat.t())
-            logits = sim_matrix / self.temperature_pose
-            
-            mask = ((pose_gt @ pose_gt.t() + 1) / 2).clamp(0, 1)
-            mask = mask * (mask > self.pose_cont_thresh).float()
-            
-            loss = (-torch.logsumexp(logits * mask, dim=1, keepdim=True) \
-                + torch.logsumexp(logits * (1-mask), dim=1, keepdim=True)).mean()
-        
-        else: # pose guidance
-            assert pose_e.shape[1] == 4, 'pose_e shape should be 4'
-            valid_g = target['valid_bev']
-            pseudo_label = torch.cat([ori_g, offset_g[:, 2:]], dim=1)
-            loss = torch.nn.functional.smooth_l1_loss(
-                pose_e, pseudo_label, reduction='none').sum(dim=1, keepdim=True)
-            loss = basic.reduce_masked_mean(loss, valid_g)
-        
-        return loss
+            return torch.tensor(0.)
 
 
     def check_distance(self, item, target):
@@ -639,10 +656,16 @@ class WorldTrackModel(pl.LightningModule):
             
             
             self.draw_detection(item, output, batch_idx)
-
-            xy_e, xy_prev_e, scores_e, classes_e, sizes_e, rzs_e = decode.decoder(
-                center_e.sigmoid(), offset_e, size_e, rz_e=rot_e, K=self.max_detections
-            )
+            
+            if self.use_reid_tracking:
+                id_e = output['instance_id_feat']
+                xy_e, xy_prev_e, scores_e, classes_e, sizes_e, rzs_e, reid_e = decode.decoder_reid(
+                    center_e.sigmoid(), offset_e, size_e, rz_e=rot_e, reid_e=id_e, K=self.max_detections
+                )
+            else:
+                xy_e, xy_prev_e, scores_e, classes_e, sizes_e, rzs_e = decode.decoder(
+                    center_e.sigmoid(), offset_e, size_e, rz_e=rot_e, K=self.max_detections
+                )
 
             mem_xyz = torch.cat((xy_e, torch.zeros_like(xy_e[..., 0:1])), dim=2)
             ref_xy = self.vox_util.Mem2Ref(mem_xyz, self.Y, self.Z, self.X)[..., :2]
@@ -666,32 +689,65 @@ class WorldTrackModel(pl.LightningModule):
             mota_now = []
             
             # tracking
-            for seq_num, frame, grid_gt, bev_det, bev_prev, score, in (
-                    zip(item['sequence_num'], item['frame'], item['grid_gt'], ref_xy.cpu(), ref_xy_prev.cpu(),
-                        scores_e.cpu())):
-                frame = int(frame.item())
-                output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
-                
-                mota_gt = [[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
-                        for x, y, i in grid_gt[grid_gt.sum(1) != 0]]
-                mota_pred = [[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
-                                + s.xy.tolist() + [-1] for s in output_stracks]
-                
-                mota_gt = np.array(mota_gt)
-                mota_pred = np.array(mota_pred)
-                if len(mota_gt) == 0 or len(mota_pred) == 0:
-                    mota_pred = np.zeros((0, 11))
-                
-                mota_gt = mota_gt[mota_gt[:, 0] == seq_num.item()]
-                mota_pred = mota_pred[mota_pred[:, 0] == seq_num.item()]
-                
-                self.mota_gt_list.extend(mota_gt.tolist())
-                self.mota_pred_list.extend(mota_pred.tolist())
-        
-                mota_now.extend(mota_pred.tolist())
+            if self.use_reid_tracking:
+                for seq_num, frame, grid_gt, bev_det, bev_prev, score, reid, in (
+                        zip(item['sequence_num'], item['frame'], item['grid_gt'], ref_xy.cpu(), ref_xy_prev.cpu(),
+                            scores_e.cpu(), reid_e.cpu())):
+                    frame = int(frame.item())
+                    output_stracks = self.test_tracker.update(bev_det, bev_prev, score, reid)
+                    
+                    mota_gt = [[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
+                            for x, y, i in grid_gt[grid_gt.sum(1) != 0]]
+                    mota_pred = [[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
+                                    + s.xy.tolist() + [-1] for s in output_stracks]
+                    
+                    mota_gt = np.array(mota_gt)
+                    mota_pred = np.array(mota_pred)
+                    if len(mota_gt) == 0 or len(mota_pred) == 0:
+                        mota_pred = np.zeros((0, 11))
+                    
+                    mota_gt = mota_gt[mota_gt[:, 0] == seq_num.item()]
+                    mota_pred = mota_pred[mota_pred[:, 0] == seq_num.item()]
+                    
+                    self.mota_gt_list.extend(mota_gt.tolist())
+                    self.mota_pred_list.extend(mota_pred.tolist())
+            
+                    mota_now.extend(mota_pred.tolist())
+            else:
+                for seq_num, frame, grid_gt, bev_det, bev_prev, score, in (
+                        zip(item['sequence_num'], item['frame'], item['grid_gt'], ref_xy.cpu(), ref_xy_prev.cpu(),
+                            scores_e.cpu())):
+                    frame = int(frame.item())
+                    output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
+                    
+                    mota_gt = [[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
+                            for x, y, i in grid_gt[grid_gt.sum(1) != 0]]
+                    mota_pred = [[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
+                                    + s.xy.tolist() + [-1] for s in output_stracks]
+                    
+                    mota_gt = np.array(mota_gt)
+                    mota_pred = np.array(mota_pred)
+                    if len(mota_gt) == 0 or len(mota_pred) == 0:
+                        mota_pred = np.zeros((0, 11))
+                    
+                    mota_gt = mota_gt[mota_gt[:, 0] == seq_num.item()]
+                    mota_pred = mota_pred[mota_pred[:, 0] == seq_num.item()]
+                    
+                    self.mota_gt_list.extend(mota_gt.tolist())
+                    self.mota_pred_list.extend(mota_pred.tolist())
+            
+                    mota_now.extend(mota_pred.tolist())
             
             self.draw_prediction(item, output, mota_now, batch_idx)
             
+            
+                # self.mota_gt_list.extend([[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
+                #                           for x, y, i in grid_gt[grid_gt.sum(1) != 0]])
+                # self.mota_pred_list.extend([[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
+                #                             + s.xy.tolist() + [-1]
+                #                             for s in output_stracks])
+        
+        
                 # self.mota_gt_list.extend([[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
                 #                           for x, y, i in grid_gt[grid_gt.sum(1) != 0]])
                 # self.mota_pred_list.extend([[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
@@ -918,69 +974,6 @@ class WorldTrackModel(pl.LightningModule):
                 tsne_pose_results = tsne.fit_transform(poses)
                 
                 self.visualize_tsne_pose(tsne_pose_results, velocities)
-
-
-    def predict_step(self, batch, batch_idx):
-        item, _ = batch
-        output = self(item)
-
-        center_e = output['instance_center']
-        offset_e = output['instance_offset']
-        size_e = output['instance_size']
-        rot_e = output['instance_rot']
-
-        xy_e, xy_prev_e, scores_e, classes_e, sizes_e, rzs_e = decode.decoder(
-            center_e.sigmoid(), offset_e, size_e, rz_e=rot_e, K=self.max_detections
-        )
-
-        mem_xyz = torch.cat((xy_e, torch.zeros_like(xy_e[..., 0:1])), dim=2)
-        ref_xy = self.vox_util.Mem2Ref(mem_xyz, self.Y, self.Z, self.X)[..., :2]
-
-        mem_xyz_prev = torch.cat((xy_prev_e, torch.zeros_like(xy_e[..., 0:1])), dim=2)
-        ref_xy_prev = self.vox_util.Mem2Ref(mem_xyz_prev, self.Y, self.Z, self.X)[..., :2]
-
-        # detection
-        for frame, xy, score in zip(item['frame'], ref_xy, scores_e):
-            frame = int(frame.item())
-            valid = score > self.conf_threshold
-            self.moda_pred_list.extend([[frame, x.item(), y.item()] for x, y in xy[valid]])
-            
-        mota_now = []
-        
-        # tracking
-        for seq_num, frame, bev_det, bev_prev, score, in (
-                zip(item['sequence_num'], item['frame'], ref_xy.cpu(), ref_xy_prev.cpu(),
-                    scores_e.cpu())):
-            frame = int(frame.item())
-            output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
-            
-            mota_pred = [[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
-                            + s.xy.tolist() + [-1] for s in output_stracks]
-            
-            mota_pred = np.array(mota_pred)
-            if len(mota_pred) == 0:
-                mota_pred = np.zeros((0, 11))
-
-            mota_pred = mota_pred[mota_pred[:, 0] == seq_num.item()]
-            self.mota_pred_list.extend(mota_pred.tolist())
-            
-            mota_now.extend(mota_pred.tolist())
-        
-        self.draw_prediction(item, output, mota_now)
-        
-        return self.moda_pred_list, self.mota_pred_list
-
-
-    def on_predict_epoch_end(self):
-        log_dir = self.trainer.log_dir if self.trainer.log_dir is not None else '../data/cache'
-
-        # detection
-        pred_path = osp.join(log_dir, 'moda_pred.txt')
-        np.savetxt(pred_path, np.array(self.moda_pred_list), '%f', delimiter=' ', newline='\n')
-
-        # tracking
-        pred_path = osp.join(log_dir, 'mota_pred.txt')
-        np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')
 
 
     def plot_data(self, target, output, batch_idx=0):
