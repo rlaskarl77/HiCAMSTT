@@ -1,4 +1,2 @@
 model:
-  learn_cont_pose: False
-  learn_pose: False
   test_mode: save_features

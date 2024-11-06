@@ -1,0 +1,17 @@
+model:
+  use_reid_tracking: True
+  use_temporal_cache: True
+  max_detections: 60
+  conf_threshold: 0.5
+  max_cache: 32
+  track_buffer: 5
+  lapjv_thresh: 0.25
+  lapjv_thresh2: 0.5
+  max_spatial_dist: 75.
+  max_spatial_dist2: 100.
+  dist_alpha: 0.9
+  temp_mixing: False
+  lambda_1: 1.
+  lambda_2: 1.
+  # test mode
+  test_mode: tracking

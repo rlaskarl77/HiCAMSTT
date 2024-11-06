@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import lightning as pl
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.patches as mpatches
 from PIL import Image, ImageDraw
 import numpy as np
 import kornia
@@ -700,7 +701,7 @@ class WorldTrackModel(pl.LightningModule):
                         zip(item['sequence_num'], item['frame'], item['grid_gt'], ref_xy.cpu(), ref_xy_prev.cpu(),
                             scores_e.cpu(), reid_e.cpu())):
                     frame = int(frame.item())
-                    output_stracks = self.test_tracker.update(bev_det, bev_prev, score, reid)
+                    output_stracks = self.test_tracker.update_old(bev_det, bev_prev, score, reid)
                     
                     mota_gt = [[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
                             for x, y, i in grid_gt[grid_gt.sum(1) != 0]]
@@ -724,7 +725,8 @@ class WorldTrackModel(pl.LightningModule):
                         zip(item['sequence_num'], item['frame'], item['grid_gt'], ref_xy.cpu(), ref_xy_prev.cpu(),
                             scores_e.cpu())):
                     frame = int(frame.item())
-                    output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
+                    # output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
+                    output_stracks = self.test_tracker.update_old(bev_det, bev_prev, score)
                     
                     mota_gt = [[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
                             for x, y, i in grid_gt[grid_gt.sum(1) != 0]]
@@ -956,10 +958,27 @@ class WorldTrackModel(pl.LightningModule):
             features = np.array(features)
             pids = np.array(pids)
             
-            tsne = TSNE(n_components=2, random_state=42, perplexity=5)
-            tsne_results = tsne.fit_transform(features)
+            MAX_TRYOUT = 5
+            NUM_CHOICE = 10
             
-            self.visualize_tsne(tsne_results, pids)
+            for i in range(MAX_TRYOUT):
+                # choice random pid and their indexes for features and pids
+                random_pid_list = np.random.choice(np.unique(pids), NUM_CHOICE, replace=False)
+                random_indexes = []
+                for pid in random_pid_list:
+                    random_indexes.extend(np.where(pids == pid)[0].tolist())
+                random_features = features[random_indexes]
+                random_pids = pids[random_indexes]
+                
+                tsne = TSNE(n_components=2, random_state=42)
+                tsne_results = tsne.fit_transform(random_features)
+                
+                self.visualize_tsne(tsne_results, random_pids, index=i)
+                
+            # tsne = TSNE(n_components=2, random_state=42, perplexity=5)
+            # tsne_results = tsne.fit_transform(features)
+            
+            # self.visualize_tsne(tsne_results, pids)
             
             if self.learn_cont_pose:
                 pose_dir = osp.join(log_dir, 'pose')
@@ -968,8 +987,8 @@ class WorldTrackModel(pl.LightningModule):
                 for file in os.listdir(pose_dir):
                     if file.endswith('.npy'):
                         pose = np.load(osp.join(pose_dir, file))
-                        # Assuming filename format is 'pose_u_v_frame.npy'
-                        velocity = tuple(map(float, file.split('_')[1:3]))  
+                        # Assuming filename format is 'u_v_frame.npy'
+                        velocity = tuple(map(float, file.split('_')[0:2]))  
                         poses.append(pose)
                         velocities.append(velocity)
                 
@@ -1156,18 +1175,23 @@ class WorldTrackModel(pl.LightningModule):
         writer.add_figure(f'predict/{batch_idx}', fig, global_step=self.global_step)
         
 
-    def visualize_tsne(self, tsne_results, pids):
+    def visualize_tsne(self, tsne_results, pids, index=0):
         
         writer = self.logger.experiment
         
         plt.figure(figsize=(10, 8))
-        scatter = plt.scatter(tsne_results[:, 0], tsne_results[:, 1], c=pids, cmap='viridis', alpha=0.5)
-        plt.colorbar(scatter, label='PID')
+        unique_pids = np.unique(pids)
+        colors = plt.cm.get_cmap('tab20', len(unique_pids))
+        pid_to_color = {pid: colors(i) for i, pid in enumerate(unique_pids)}
+        pid_colors = [pid_to_color[pid] for pid in pids]
+        scatter = plt.scatter(tsne_results[:, 0], tsne_results[:, 1], c=pid_colors, alpha=0.7)
         plt.title('t-SNE of Feature Vectors')
+        legend_handles = [mpatches.Patch(color=mcolors.to_rgba(pid_to_color[pid]), label=f'{pid}') for pid in unique_pids]
+        plt.legend(handles=legend_handles, title='PID')
         # plt.xlabel('t-SNE 1')
         # plt.ylabel('t-SNE 2')
         
-        writer.add_figure('tsne visualization of identity features', 
+        writer.add_figure(f'tsne visualization of identity features {index}', 
                           plt.gcf(), global_step=self.global_step)
         
 

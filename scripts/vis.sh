@@ -1,0 +1,1 @@
+ffmpeg -framerate 2 -start_number 1800 -pattern_type glob -i "*.png" -c:v ffv1 result.avi

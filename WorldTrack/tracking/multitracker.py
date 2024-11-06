@@ -103,7 +103,7 @@ class STrack(BaseTrack):
                 stracks[i].mean = mean
                 stracks[i].covariance = cov
 
-    def activate(self, kalman_filter, frame_id):
+    def activate(self, kalman_filter, frame_id, old_method=False):
         """Start a new tracklet"""
         self.kalman_filter = kalman_filter
         self.track_id = self.next_id()
@@ -111,9 +111,14 @@ class STrack(BaseTrack):
 
         self.tracklet_len = 0
         self.state = TrackState.Tracked
-        # if frame_id == 1:
-        #     self.is_activated = True
-        self.is_activated = True
+        if old_method:
+            if frame_id == 1:
+                self.is_activated = True
+            # self.is_activated = True
+        else:
+            # if frame_id == 1:
+            #     self.is_activated = True
+            self.is_activated = True
         self.frame_id = frame_id
         self.start_frame = frame_id
 
@@ -356,6 +361,8 @@ class JDETracker:
             if track.score < self.det_thresh:
                 continue
             track.activate(self.kalman_filter, self.frame_id)
+            if self.reid:
+                track.update_features(reid[inew])
             activated_starcks.append(track)
         
         """ Step 5: Update state"""
@@ -439,22 +446,22 @@ class JDETracker:
             reid_dists = matching.embedding_distance(strack_pool, detections) / 2.0
             # normalize center distance
             # print(np.max(dists), np.min(dists), np.max(dists) / self.lapjv_thresh) if len(dists) > 0 else None
-            dists = np.clip(dists, a_min=0., a_max=self.lapjv_thresh) / self.lapjv_thresh
+            dists = np.clip(dists, a_min=0., a_max=self.max_spatial_dist) / self.max_spatial_dist
             
             if self.use_temporal_mixing:
                 strack_pool_t = [[track.frame_id] for track in strack_pool]
                 detections_t = [[self.frame_id-1] for det in detections]
                 temp_dist = matching.center_distance(strack_pool_t, detections_t)
-                temp_weight = 1 / (self.lambda_1 + np.exp(-1. * self.lambda_2 * temp_dist))
+                temp_weight = 1 / (1 + np.exp(self.lambda_1 - 1. * self.lambda_2 * temp_dist))
                 dists = (1 - temp_weight) * dists + temp_weight * reid_dists
             
             else:
                 dists = (1-self.dist_alpha) * dists + reid_dists * self.dist_alpha # 0.5 is the weight for reid distance
             
-            matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.25)
+            matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.lapjv_thresh)
         
         else:
-            matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.lapjv_thresh)
+            matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.max_spatial_dist)
 
         for itracked, idet in matches:
             track = strack_pool[itracked]
@@ -486,24 +493,24 @@ class JDETracker:
             # calculate reid distance
             reid_dists = matching.embedding_distance(unconfirmed, detections) / 2.0
             # normalize center distance
-            print(np.max(dists), np.min(dists), np.max(dists)/self.lapjv_thresh2) if len(dists) > 0 and len(dists[0])>0 else None
-            dists = np.clip(dists, a_min=0., a_max=self.lapjv_thresh2) / self.lapjv_thresh2
+            # print(np.max(dists), np.min(dists), np.max(dists)/self.lapjv_thresh2) if len(dists) > 0 and len(dists[0])>0 else None
+            dists = np.clip(dists, a_min=0., a_max=self.max_spatial_dist2) / self.max_spatial_dist2
             
             if self.use_temporal_mixing:
                 unconfirmed_t = [[track.frame_id] for track in unconfirmed]
                 detections_t = [[self.frame_id-1] for det in detections]
                 temp_dist = matching.center_distance(unconfirmed_t, detections_t)
-                temp_weight = 1 / (self.lambda_1 + np.exp(-1. * self.lambda_2 * temp_dist))
+                temp_weight = 1 / (1 + np.exp(self.lambda_1 - 1. * self.lambda_2 * temp_dist))
                 dists = (1 - temp_weight) * dists + temp_weight * reid_dists
             
             else:
                 # dists = dists + reid_dists * 0.5 # 0.5 is the weight for reid distance
                 dists = (1-self.dist_alpha) * dists + reid_dists * self.dist_alpha # 0.5 is the weight for reid distance
             
-            matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=0.5)
+            matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=self.lapjv_thresh2)
         
         else:
-            matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=self.lapjv_thresh2)
+            matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=self.max_spatial_dist2)
         
         
         for itracked, idet in matches:
@@ -525,6 +532,8 @@ class JDETracker:
             if track.score < self.det_thresh:
                 continue
             track.activate(self.kalman_filter, self.frame_id)
+            if self.reid:
+                track.update_features(reid[inew])
             activated_starcks.append(track)
         
         """ Step 5: Update state"""
