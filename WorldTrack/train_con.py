@@ -483,9 +483,7 @@ class WorldTrackModel(pl.LightningModule):
             log_prob = F.log_softmax(logits, dim=1)
             # Apply mask to log_prob
             log_prob_pos = (mask * log_prob).sum(dim=1) / (mask.sum(dim=1) + 1e-6)
-            log_prob_neg = ((1 - mask) * log_prob).sum(dim=1) / (1 - mask).sum(dim=1)
-            # To balance the positive and negative samples
-            loss = -log_prob_pos.mean() + log_prob_neg.mean()
+            loss = -log_prob_pos.mean()
         
         elif self.cont_type == 'moco':
             frames = target['frame']
