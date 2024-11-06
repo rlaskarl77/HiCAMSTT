@@ -525,11 +525,19 @@ class WorldTrackModel(pl.LightningModule):
                 sim_matrix = torch.matmul(pose_feat, pose_feat.t())
                 logits = sim_matrix / self.temperature_pose
                 
-                mask = ((pose_gt @ pose_gt.t() + 1) / 2).clamp(0, 1)
-                mask = mask * (mask > self.pose_cont_thresh).float()
                 
-                loss = (-torch.logsumexp(logits * mask, dim=1, keepdim=True) \
-                    + torch.logsumexp(logits * (1-mask), dim=1, keepdim=True)).mean()
+                label = ~torch.eye(len(pose_feat), device=self.device).bool()
+                
+                pose_sim = ((pose_gt @ pose_gt.t() + 1) / 2).clamp(0, 1)
+                mask = pose_sim * (pose_sim > self.pose_cont_thresh).float()
+                
+                logits = (logits[label]).reshape(len(pose_feat), -1)
+                mask = (mask[label]).reshape(len(pose_feat), -1)
+                # Compute NT-Xent loss
+                log_prob = F.log_softmax(logits, dim=1)
+                # Apply mask to log_prob
+                log_prob_pos = (mask * log_prob).sum(dim=1) / (mask.sum(dim=1) + 1e-6)
+                loss = -log_prob_pos.mean()
             
             else: # pose guidance
                 assert pose_e.shape[1] == 4, 'pose_e shape should be 4'
