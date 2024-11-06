@@ -345,7 +345,7 @@ class JDETracker:
         
         
         for it in u_unconfirmed:
-            track = tracked_stracks[it]
+            track = unconfirmed[it]
             if not track.state == TrackState.Lost:
                 track.mark_lost()
                 lost_stracks.append(track)

@@ -334,11 +334,11 @@ class WorldTrackModel(pl.LightningModule):
     def store_identities(self, target, output):
         frames = target['frame'].cpu()
         bev_feat = output['instance_id_feat']
-        id_feat, _, pid_counts = self.get_feature_vec_with_pid(bev_feat, target['pid_bev'])
+        id_feat, _, counts = self.get_feature_vec_with_pid(bev_feat, target['pid_bev'])
         
         for i, frame in enumerate(frames):
             prev_identities = self.load_identities(frame)
-            feat: torch.Tensor = id_feat[pid_counts[:i].sum():pid_counts[:i+1].sum()]
+            feat: torch.Tensor = id_feat[sum(counts[:i]):sum(counts[:i+1])]
             if prev_identities is None:
                 self.moco_memory_bank[frame] = feat.cpu()
             else:
@@ -496,7 +496,7 @@ class WorldTrackModel(pl.LightningModule):
                     continue
                 else:
                     prev_identities.to(self.device)
-                    identities = id_feat[pid_counts[:i].sum():pid_counts[:i+1].sum()]
+                    identities = id_feat[sum(pid_counts[:i]):sum(pid_counts[:i+1])]
                     assert identities.shape[0] == num_pid, 'num_pid should be the same'
                     assert identities.shape[1] == id_feat.shape[1], 'feature dim should be the same'
                     current_loss = F.mse_loss(identities, prev_identities).mean()
@@ -821,8 +821,8 @@ class WorldTrackModel(pl.LightningModule):
             feat, pid, counts = self.get_feature_vec_with_pid(feat_bev, pid_bev)
             
             for i, frame in enumerate(item['frame']):
-                pid_i = pid[counts[:i].sum():counts[:i+1].sum()]
-                feat_i = feat[counts[:i].sum():counts[:i+1].sum()]
+                pid_i = pid[sum(counts[:i]):sum(counts[:i+1])]
+                feat_i = feat[sum(counts[:i]):sum(counts[:i+1])]
                 
                 for p, f in zip(pid_i, feat_i):
                     f = f.cpu().detach().numpy()
@@ -839,8 +839,8 @@ class WorldTrackModel(pl.LightningModule):
                 vel, _, _ = self.get_feature_vec_with_pid(vel_bev, pid_bev)
                 
                 for i, frame in enumerate(item['frame']):
-                    pose_i = pose[counts[:i].sum():counts[:i+1].sum()]
-                    vel_i = vel[counts[:i].sum():counts[:i+1].sum()]
+                    pose_i = pose[sum(counts[:i]):sum(counts[:i+1])]
+                    vel_i = vel[sum(counts[:i]):sum(counts[:i+1])]
                     
                     for v, f in zip(vel_i, pose_i):
                         f = f.cpu().detach().numpy()
