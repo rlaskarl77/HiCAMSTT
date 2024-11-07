@@ -3,9 +3,9 @@ import numpy as np
 from evaluation.CLEAR_MOD_HUN import CLEAR_MOD_HUN
 
 
-def modMetricsCalculator(res_fpath, gt_fpath):
+def modMetricsCalculator(res_fpath, gt_fpath, unit=2.5):
     """
-    This is simply the python translation of a MATLAB　Evaluation tool
+    This is simply the python translation of a MATLAB_Evaluation tool
     used to evaluate detection result created by P. Dollar.
 
     This API allow the project to run purely in Python without using MATLAB Engine.
@@ -72,5 +72,5 @@ def modMetricsCalculator(res_fpath, gt_fpath):
         else:
             detAllMatrix = np.concatenate((detAllMatrix, tmp_arr), axis=0)
         frame_ctr += 1
-    recall, precision, MODA, MODP = CLEAR_MOD_HUN(gtAllMatrix, detAllMatrix)
+    recall, precision, MODA, MODP = CLEAR_MOD_HUN(gtAllMatrix, detAllMatrix, du=unit)
     return recall, precision, MODA, MODP

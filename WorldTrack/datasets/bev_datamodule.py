@@ -6,7 +6,6 @@ from torch.utils.data import DataLoader
 
 from datasets.multiviewx_dataset import MultiviewX
 from datasets.wildtrack_dataset import Wildtrack
-from datasets.wildtrack_dataset_3cam import Wildtrack3cam
 from datasets.hdc_dataset import HDC
 from datasets.bev_dataset import BevDataset
 from datasets.sampler import TemporalSampler
@@ -38,8 +37,6 @@ class BevDataModule(pl.LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
         if 'wildtrack' in self.dataset.lower():
-            if '3cam' in self.dataset.lower():
-                base = Wildtrack3cam(self.data_dir)
             base = Wildtrack(self.data_dir)
         elif 'multiviewx' in self.dataset.lower():
             base = MultiviewX(self.data_dir)

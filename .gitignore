@@ -223,7 +223,7 @@ WorldTrack/lightning_logs/
 
 # ETC
 imgs/
-scripts/
 visualization/
 checkpoints/
 reid/
+experiments

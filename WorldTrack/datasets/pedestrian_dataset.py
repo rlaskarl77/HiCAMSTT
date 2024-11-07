@@ -21,7 +21,7 @@ class PedestrianDataset(VisionDataset):
             bounds=(-500, 500, -320, 320, 0, 2),
             final_dim: tuple = (720, 1280),
             resize_lim: list = (0.8, 1.2),
-            inference=False
+            test_reid=False,
     ):
         super().__init__(base.root)
         self.base = base
@@ -47,7 +47,7 @@ class PedestrianDataset(VisionDataset):
             bounds=self.bounds,
             assert_cube=False)
 
-        self.inference = inference
+        self.test_reid = test_reid
 
         if self.is_train:
             frame_range = range(0, int(self.num_frame * 0.9))
@@ -56,28 +56,17 @@ class PedestrianDataset(VisionDataset):
             frame_range = range(int(self.num_frame * 0.9), self.num_frame)
             # frame_range = range(1486, 1756)
         else:
-            frame_range = range(self.num_frame)
+            frame_range = range(int(self.num_frame * 0.9), self.num_frame)
 
         self.img_fpaths = self.base.get_image_fpaths(frame_range)
         
-        if not self.inference:
-            self.world_gt = {}
-            self.imgs_gt = {}
-            self.pid_dict = {}
-            self.download(frame_range)
-            self.gt_fpath = os.path.join(self.root, 'gt.txt')
-            self.prepare_gt()
+        self.world_gt = {}
+        self.imgs_gt = {}
+        self.pid_dict = {}
+        self.download(frame_range)
+        self.gt_fpath = os.path.join(self.root, 'gt.txt')
+        self.prepare_gt()
         
-        else:
-            self.world_gt = {}
-            self.imgs_gt = {}
-            self.pid_dict = {}
-            self.download(frame_range)
-            self.gt_fpath = os.path.join(self.root, 'gt.txt')
-            self.prepare_gt()
-            self.datetime = None
-            self.fps = 2 # wildtrack
-            self.time_delta = timedelta(milliseconds=1000 / self.fps)
 
         self.calibration = {}
         self.setup()
@@ -280,10 +269,6 @@ class PedestrianDataset(VisionDataset):
         centers, offsets, sizes, pids, valids = [], [], [], [], []
         for cam in cameras:
             img = Image.open(self.img_fpaths[cam][frame]).convert('RGB')
-            # if np.random.rand() < 0.33:
-            #     img = Image.open(self.img_fpaths[cam][frame]).convert('RGB')
-            # else:
-            # img = Image.open(self.img_fpaths[cam][frame + self.base.frame_step * int(2*np.random.rand())]).convert('RGB')
             W, H = img.size
 
             resize_dims, crop = self.sample_augmentation()
@@ -320,60 +305,20 @@ class PedestrianDataset(VisionDataset):
             offsets), torch.stack(sizes), torch.stack(pids), torch.stack(valids)
 
     def __len__(self):
-        if self.inference:
-            return len(self.img_fpaths[0])
         return len(self.world_gt.keys())
     
-    def __getitem_infer__(self, index):
-        frame = list(self.world_gt.keys())[index]
-        cameras = list(range(self.num_cam))
-
-        # images
-        imgs, intrins, extrins = self.get_image(frame, cameras)
-
-        worldcoord_from_worldgrid = torch.eye(4)
-        worldcoord_from_worldgrid2d = torch.tensor(self.base.worldcoord_from_worldgrid_mat, dtype=torch.float32)
-        worldcoord_from_worldgrid[:2, :2] = worldcoord_from_worldgrid2d[:2, :2]
-        worldcoord_from_worldgrid[:2, 3] = worldcoord_from_worldgrid2d[:2, 2]
-        worldgrid_T_worldcoord = torch.inverse(worldcoord_from_worldgrid)
-
-        grid_gt = torch.zeros((self.max_objects, 3), dtype=torch.long)
-        
-        if self.datetime is None:
-            self.datetime = datetime.now()
-        self.datetime += self.time_delta
-        time = self.datetime.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-        
-        item = {
-            'img': imgs,  # S,3,H,W
-            'intrinsic': intrins,  # S,4,4
-            'extrinsic': extrins,  # S,4,4
-            'ref_T_global': worldgrid_T_worldcoord,  # 4,4
-            'frame': frame // self.base.frame_step,
-            'sequence_num': int(0),
-            'grid_gt': grid_gt,
-            'time': [time],
-        }
-        # print(item)
-
-        target = {}
-
-        return item, target
-
     def __getitem__(self, index):
-        
-        # if self.inference:
-        #     return self.__getitem_infer__(index)
         
         frame = list(self.world_gt.keys())[index]
         pre_frame = list(self.world_gt.keys())[max(index - 1, 0)]
         
-        random_index = np.random.randint(0, len(self.world_gt.keys()))
-        while random_index == index or random_index == index - 1:
+        if self.test_reid:
             random_index = np.random.randint(0, len(self.world_gt.keys()))
-        
-        random_frame = list(self.world_gt.keys())[random_index]
-        pre_random_frame = list(self.world_gt.keys())[max(random_index - 1, 0)]
+            while random_index == index or random_index == index - 1:
+                random_index = np.random.randint(0, len(self.world_gt.keys()))
+            
+            random_frame = list(self.world_gt.keys())[random_index]
+            pre_random_frame = list(self.world_gt.keys())[max(random_index - 1, 0)]
         
         cameras = list(range(self.num_cam))
 
@@ -381,14 +326,16 @@ class PedestrianDataset(VisionDataset):
         imgs, intrins, extrins, centers_img, offsets_img, sizes_img, pids_img, valids_img \
             = self.get_image_data(frame, cameras)
         
-        imgs_prev, _, _, _, _, _, _, _ \
-            = self.get_image_data(pre_frame, cameras)
-            
-        imgs_rand, _, _, _, _, _, _, _ \
-            = self.get_image_data(random_frame, cameras)
+        if self.test_reid:
         
-        imgs_prev_rand, _, _, _, _, _, _, _ \
-            = self.get_image_data(pre_random_frame, cameras)
+            imgs_prev, _, _, _, _, _, _, _ \
+                = self.get_image_data(pre_frame, cameras)
+                
+            imgs_rand, _, _, _, _, _, _, _ \
+                = self.get_image_data(random_frame, cameras)
+            
+            imgs_prev_rand, _, _, _, _, _, _, _ \
+                = self.get_image_data(pre_random_frame, cameras)
 
         worldcoord_from_worldgrid = torch.eye(4)
         worldcoord_from_worldgrid2d = torch.tensor(self.base.worldcoord_from_worldgrid_mat, dtype=torch.float32)
@@ -399,20 +346,22 @@ class PedestrianDataset(VisionDataset):
         worldgrid_pts_org, world_pids = self.world_gt[frame]
         worldgrid_pts_pre, world_pid_pre = self.world_gt[pre_frame]
         
-        worldgrid_pts_rand, world_pids_rand = self.world_gt[random_frame]
-        worldgrid_pts_pre_rand, world_pid_pre_rand = self.world_gt[pre_random_frame]
+        if self.test_reid:
+            worldgrid_pts_rand, world_pids_rand = self.world_gt[random_frame]
+            worldgrid_pts_pre_rand, world_pid_pre_rand = self.world_gt[pre_random_frame]
 
         worldgrid_pts = torch.cat((worldgrid_pts_org, torch.zeros_like(worldgrid_pts_org[:, 0:1])), dim=1).unsqueeze(0)
         worldgrid_pts_pre = torch.cat((worldgrid_pts_pre, torch.zeros_like(worldgrid_pts_pre[:, 0:1])), dim=1)
         
-        worldgrid_pts_rand = torch.cat((worldgrid_pts_rand, torch.zeros_like(worldgrid_pts_rand[:, 0:1])), dim=1).unsqueeze(0)
-        worldgrid_pts_pre_rand = torch.cat((worldgrid_pts_pre_rand, torch.zeros_like(worldgrid_pts_pre_rand[:, 0:1])), dim=1)
+        if self.test_reid:
+            worldgrid_pts_rand = torch.cat((worldgrid_pts_rand, torch.zeros_like(worldgrid_pts_rand[:, 0:1])), dim=1).unsqueeze(0)
+            worldgrid_pts_pre_rand = torch.cat((worldgrid_pts_pre_rand, torch.zeros_like(worldgrid_pts_pre_rand[:, 0:1])), dim=1)
 
-        if self.is_train and False:
+        if self.is_train:
             Rz = torch.eye(3)
             scene_center = torch.tensor([0., 0., 0.], dtype=torch.float32)
-            # off = 0.25
-            off = 0.05
+            off = 0.25
+            # off = 0.05
             scene_center[:2].uniform_(-off, off)
             augment = geom.merge_rt(Rz.unsqueeze(0), -scene_center.unsqueeze(0)).squeeze()
             worldgrid_T_worldcoord = torch.matmul(augment, worldgrid_T_worldcoord)
@@ -422,26 +371,15 @@ class PedestrianDataset(VisionDataset):
         mem_pts_pre = self.vox_util.Ref2Mem(worldgrid_pts_pre.unsqueeze(0), self.Y, self.Z, self.X)
         center_bev, valid_bev, pid_bev, offset_bev = self.get_bev_gt(mem_pts, mem_pts_pre,  world_pids, world_pid_pre)
         
-        mem_pts_rand = self.vox_util.Ref2Mem(worldgrid_pts_rand, self.Y, self.Z, self.X)
-        mem_pts_pre_rand = self.vox_util.Ref2Mem(worldgrid_pts_pre_rand.unsqueeze(0), self.Y, self.Z, self.X)
-        _, _, pid_bev_rand, _ = self.get_bev_gt(mem_pts_rand, mem_pts_pre_rand, world_pids_rand, world_pid_pre_rand)
-        
-        _, _, pid_bev_prev, _ = self.get_bev_gt(mem_pts_pre, mem_pts_pre, world_pid_pre, world_pid_pre)
-        # _, _, pid_bev_rand, _ = self.get_bev_gt(mem_pts, mem_pts_pre, world_pids_rand, world_pid_pre_rand)
-        # _, _, pid_bev_prev_rand, _ = self.get_bev_gt(mem_pts_pre, mem_pts_pre, world_pid_pre_rand, world_pid_pre_rand)
-        
+        if self.test_reid:
+            mem_pts_rand = self.vox_util.Ref2Mem(worldgrid_pts_rand, self.Y, self.Z, self.X)
+            mem_pts_pre_rand = self.vox_util.Ref2Mem(worldgrid_pts_pre_rand.unsqueeze(0), self.Y, self.Z, self.X)
+            _, _, pid_bev_rand, _ = self.get_bev_gt(mem_pts_rand, mem_pts_pre_rand, world_pids_rand, world_pid_pre_rand)
+            _, _, pid_bev_prev, _ = self.get_bev_gt(mem_pts_pre, mem_pts_pre, world_pid_pre, world_pid_pre)
 
         grid_gt = torch.zeros((self.max_objects, 3), dtype=torch.long)
         grid_gt[:worldgrid_pts.shape[1], :2] = worldgrid_pts_org
         grid_gt[:worldgrid_pts.shape[1], 2] = world_pids
-        
-        # noise_intrins = torch.ones_like(intrins)
-        # noise_intrins += torch.randn_like(intrins) * 0.01
-        # intrins = intrins * noise_intrins
-        
-        # noise_extrins = torch.ones_like(extrins)
-        # noise_extrins += torch.randn_like(extrins) * 0.01
-        # extrins = extrins * noise_extrins
 
         item = {
             'img': imgs,  # S,3,H,W
@@ -451,12 +389,17 @@ class PedestrianDataset(VisionDataset):
             'frame': frame // self.base.frame_step,
             'sequence_num': int(0),
             'grid_gt': grid_gt,
-            
-            'img_prev': imgs_prev,  # S,3,H,W
-            'img_rand': imgs_rand,  # S,3,H,W
-            'img_prev_rand': imgs_prev_rand,  # S,3,H,W
-            'frame_rand': random_frame // self.base.frame_step,
         }
+        
+        if self.test_reid:
+            additional = {
+                'img_prev': imgs_prev,  # S,3,H,W
+                'img_rand': imgs_rand,  # S,3,H,W
+                'img_prev_rand': imgs_prev_rand,  # S,3,H,W
+                'frame_rand': random_frame // self.base.frame_step,
+            }
+            item.update(additional)
+        
         target = {
             # bev
             'valid_bev': valid_bev,  # 1,Y,X
@@ -464,18 +407,22 @@ class PedestrianDataset(VisionDataset):
             'offset_bev': offset_bev,  # 2,Y,X
             'pid_bev': pid_bev,  # 1,Y,X
             
-            'pid_bev_prev': pid_bev_prev,  # 1,Y,X
-            'pid_bev_rand': pid_bev_rand,  # 1,Y,X
             
-            # 'pid_bev_prev_rand': pid_bev_prev_rand,  # 1,Y,X
             # img
             'center_img': centers_img,  # S,1,H/8,W/8
             'offset_img': offsets_img,  # S,2,H/8,W/8
             'size_img': sizes_img,  # S,2,H/8,W/8
             'valid_img': valids_img,  # S,1,H/8,W/8
             'pid_img': pids_img,  # S,1,H/8,W/8
-            
-            # ETC
-            'frame_rand': random_frame // self.base.frame_step,
         }
+        
+        if self.test_reid:
+            additional = {
+                'pid_bev_prev': pid_bev_prev,  # 1,Y,X
+                'pid_bev_rand': pid_bev_rand,  # 1,Y,X
+                # ETC
+                'frame_rand': random_frame // self.base.frame_step,
+            }
+            target.update(additional)
+        
         return item, target

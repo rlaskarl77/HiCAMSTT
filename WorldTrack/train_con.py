@@ -1,13 +1,16 @@
+import os
 import os.path as osp
 import torch
 import torch.nn.functional as F
 import lightning as pl
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.patches as mpatches
 from PIL import Image, ImageDraw
 import numpy as np
 import kornia
 import cv2
+from sklearn.manifold import TSNE
 
 from models import Segnet, MVDet, Liftnet, Bevformernet, MVDetr
 from models.loss import FocalLoss, compute_rot_loss
@@ -28,13 +31,39 @@ class WorldTrackModel(pl.LightningModule):
             num_cameras=None,
             depth=(100, 2.0, 25),
             scene_centroid=(0.0, 0.0, 0.0),
-            max_detections=60,
-            conf_threshold=0.25,
             num_classes=1,
-            use_temporal_cache=True,
             z_sign=1,
             feat2d_dim=128,
+            # decoder
+            learn_reid=True,
+            learn_pose=True,
+            id_pose_decompose=True,
+            reid_feat=128,
+            pose_feat=128,
+            hard_mask=False,
             temperature=1.,
+            cont_type='simclr',
+            learn_cont_pose=True,
+            temperature_pose=1.,
+            pose_cont_thresh=0.5,
+            # tracker
+            use_reid_tracking=True,
+            use_temporal_cache=True,
+            max_detections=60,
+            conf_threshold=0.5,
+            max_cache=32,
+            track_buffer=5,
+            lapjv_thresh=0.25,
+            lapjv_thresh2=0.5,
+            max_spatial_dist=75.,
+            max_spatial_dist2=100.,
+            dist_alpha=0.5,
+            temp_mixing=True,
+            lambda_1=1.,
+            lambda_2=1.,
+            # test mode
+            test_dataset_dir: str=None,
+            test_mode: str='tracking',
     ):
         super().__init__()
         self.model_name = model_name
@@ -45,7 +74,49 @@ class WorldTrackModel(pl.LightningModule):
         self.bounds = bounds
         self.max_detections = max_detections
         self.D, self.DMIN, self.DMAX = depth
+        
         self.conf_threshold = conf_threshold
+        
+        # Decoder
+        self.learn_reid = learn_reid
+        self.learn_pose = learn_pose
+        self.decoder_args = {
+            "learn_reid": learn_reid,
+            "learn_pose": learn_pose,
+            "id_pose_decompose": id_pose_decompose,
+            "reid_feat": reid_feat,
+            "pose_feat": pose_feat,
+            "hard_mask": hard_mask,
+        }
+        # contrastive loss
+        self.temperature = temperature
+        self.cont_type = cont_type # simclr or moco
+        self.learn_cont_pose = learn_cont_pose
+        self.pose_cont_thresh = pose_cont_thresh
+        self.temperature_pose = temperature_pose
+        
+        if self.cont_type == 'moco':
+            self.moco_memory_bank = dict()
+        
+        assert pose_feat == 4 or (learn_pose and learn_cont_pose) or (not learn_pose), \
+            'pose_feat should be 4 (rot, val) if learn_pose is False'
+        
+        # Tracker
+        self.use_reid_tracking = use_reid_tracking
+        self.tracker_args = {
+            "use_reid_tracking": use_reid_tracking,
+            "conf_thres": conf_threshold,
+            "track_buffer": track_buffer,
+            "lapjv_thresh": lapjv_thresh,
+            "lapjv_thresh2": lapjv_thresh2,
+            "max_spatial_dist": max_spatial_dist,
+            "max_spatial_dist2": max_spatial_dist2,
+            "dist_alpha": dist_alpha,
+            "temp_mixing": temp_mixing,
+            "lambda_1": lambda_1,
+            "lambda_2": lambda_2,
+        }
+        self.test_tracker = JDETracker(**self.tracker_args)
 
         # Loss
         self.center_loss_fn = FocalLoss()
@@ -54,35 +125,32 @@ class WorldTrackModel(pl.LightningModule):
 
         # Temporal cache
         self.use_temporal_cache = use_temporal_cache
-        self.max_cache = 16 #32 #512 #32
-        self.temporal_cache_frames = -2 * torch.ones(self.max_cache, dtype=torch.long)
+        self.max_cache = max_cache
+        self.temporal_cache_frames = -2 * torch.ones(self.max_cache, dtype=torch.long) \
+            if self.use_temporal_cache else None
         self.temporal_cache = None
-
-        # Test
-        self.moda_gt_list, self.moda_pred_list = [], []
-        self.mota_gt_list, self.mota_pred_list = [], []
-        self.mota_seq_gt_list, self.mota_seq_pred_list = [], []
-        self.frame = 0
-        self.test_tracker = JDETracker(conf_thres=self.conf_threshold)
 
         # Model
         num_cameras = None if num_cameras == 0 else num_cameras
         if model_name == 'segnet':
             self.model = Segnet(self.Y, self.Z, self.X, num_cameras=num_cameras, feat2d_dim=feat2d_dim,
-                                encoder_type=self.encoder_name, num_classes=num_classes, z_sign=z_sign)
+                                encoder_type=self.encoder_name, num_classes=num_classes, z_sign=z_sign,
+                                decoder_args=self.decoder_args)
         elif model_name == 'liftnet':
             self.model = Liftnet(self.Y, self.Z, self.X, encoder_type=self.encoder_name, feat2d_dim=feat2d_dim,
                                  DMIN=self.DMIN, DMAX=self.DMAX, D=self.D, num_classes=num_classes, z_sign=z_sign,
-                                 num_cameras=num_cameras)
+                                 num_cameras=num_cameras, decoder_args=self.decoder_args)
         elif model_name == 'bevformer':
             self.model = Bevformernet(self.Y, self.Z, self.X, feat2d_dim=feat2d_dim,
-                                      encoder_type=self.encoder_name, num_classes=num_classes, z_sign=z_sign)
+                                      encoder_type=self.encoder_name, num_classes=num_classes, z_sign=z_sign,
+                                      decoder_args=self.decoder_args)
         elif model_name == 'mvdet':
             self.model = MVDet(self.Y, self.Z, self.X, encoder_type=self.encoder_name,
-                               num_cameras=num_cameras, num_classes=num_classes)
+                               num_cameras=num_cameras, num_classes=num_classes, decoder_args=self.decoder_args)
         elif model_name == 'mvdetr':
             self.model = MVDetr(self.Y, self.Z, self.X, encoder_type=self.encoder_name,
-                                num_cameras=num_cameras, num_classes=num_classes, feat2d_dim=feat2d_dim)
+                                num_cameras=num_cameras, num_classes=num_classes, feat2d_dim=feat2d_dim,
+                                decoder_args=self.decoder_args)
         else:
             raise ValueError(f'Unknown model name {self.model_name}')
 
@@ -91,34 +159,66 @@ class WorldTrackModel(pl.LightningModule):
         self.save_hyperparameters()
         
         
-        # feature distance
+        # Test
+        self.test_dataset = None if test_dataset_dir is None \
+            else 'wildtrack' if 'wildtrack' in test_dataset_dir.lower() \
+            else 'multiviewx' if 'multiviewx' in test_dataset_dir.lower() \
+            else 'aicity_lt' if 'aicity_lt' in test_dataset_dir.lower() \
+            else 'aicity' if 'aicity' in test_dataset_dir.lower() \
+            else None
         
-        self.max_features = 100 # 38
-        self.feat_correct_self, self.feat_correct_random = 0, 0
-        self.feat_total_self, self.feat_total_random = 0, 0
+        self.test_mode = test_mode
+        if self.test_mode == 'tracking':
+            self.moda_gt_list, self.moda_pred_list = [], []
+            self.mota_gt_list, self.mota_pred_list = [], []
+            self.mota_seq_gt_list, self.mota_seq_pred_list = [], []
         
-        self.feat_dist_self = torch.full((self.max_features, self.max_features), -1, device=self.device, dtype=torch.float32)
-        self.feat_dist_random = torch.full((self.max_features, self.max_features), -1, device=self.device, dtype=torch.float32)
-        
-        self.feat_dist_count_self = torch.zeros(self.max_features, self.max_features, device=self.device)
-        self.feat_dist_count_random = torch.zeros(self.max_features, self.max_features, device=self.device)
-        
-        self.feat_dist_self_list = []
-        self.feat_dist_random_list = []
-        
-        self.feat_correct = 0
-        self.feat_total = 0
-        self.feat_dist = torch.full((self.max_features, self.max_features), 2, device=self.device, dtype=torch.float32)
-        self.feat_dist_count = torch.zeros(self.max_features, self.max_features, device=self.device)
-        
-        self.feat_dist_list = []
-        
-        # contrastive loss
-        self.temperature = temperature #0.07
-        
-        self.temporal_cache_raw = None
-        self.temporal_cache_bev = None
+        elif self.test_mode == 'feature_distance':
+            self.max_features = 100
+            self.feat_correct_self, self.feat_correct_random = 0, 0
+            self.feat_total_self, self.feat_total_random = 0, 0
 
+            self.feat_dist_self = torch.full((self.max_features, self.max_features), -1, device=self.device, dtype=torch.float32)
+            self.feat_dist_random = torch.full((self.max_features, self.max_features), -1, device=self.device, dtype=torch.float32)
+
+            self.feat_dist_count_self = torch.zeros(self.max_features, self.max_features, device=self.device)
+            self.feat_dist_count_random = torch.zeros(self.max_features, self.max_features, device=self.device)
+
+            self.feat_dist_self_list = []
+            self.feat_dist_random_list = []
+
+            self.feat_correct = 0
+            self.feat_total = 0
+            self.feat_dist = torch.full((self.max_features, self.max_features), 2, device=self.device, dtype=torch.float32)
+            self.feat_dist_count = torch.zeros(self.max_features, self.max_features, device=self.device)
+
+            self.feat_dist_list = []
+        
+        elif self.test_mode == 'pose':
+            self.pose_gt_list = []
+            self.pose_pred_list = []
+        
+        elif self.test_mode == 'training' or self.test_mode == 'prediction':
+            pass
+        
+        elif self.test_mode == 'save_features':
+            pass
+        
+        else:
+            raise ValueError(f'Unknown test mode {self.test_mode}')
+
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, max_lr=self.learning_rate, total_steps=self.trainer.estimated_stepping_batches,
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {"scheduler": scheduler, "interval": "step"}
+        }
+        
+    
     def forward(self, item, is_train=True):
         """
         B = batch size, S = number of cameras, C = 3, H = img height, W = img width
@@ -128,7 +228,7 @@ class WorldTrackModel(pl.LightningModule):
         ref_T_global: (B,4,4)
         vox_util: vox util object
         """
-        prev_bev, _ = self.load_cache(item['frame'].cpu(), prev=True)
+        prev_bev = self.load_cache(item['frame'].cpu(), prev=True)
 
         output = self.model(
             rgb_cams=item['img'],
@@ -140,29 +240,11 @@ class WorldTrackModel(pl.LightningModule):
         )
 
         if self.use_temporal_cache:
-            if is_train:
-                self.store_cache(item['frame'].cpu(), 
-                                output['bev_raw'].clone().detach(),
-                                None)
-            else:
-                self.store_cache(item['frame'].cpu(),
-                                output['bev_raw'].clone().detach(),
-                                output['bev_feat'].clone().detach())
-
+            self.store_cache(item['frame'].cpu(), 
+                            output['bev_raw'].clone().detach())
+        
         return output
     
-    def compute_random_reid(self, target):
-        
-        frame_random = target['frame_rand']
-        
-        random_bev_raw, random_bev = self.load_cache(frame_random.cpu(), prev=False)
-        
-        if random_bev is None:
-            return None
-        
-        random_bev = self.model.decoder.bev_heads['id_feat'](random_bev)
-        
-        return random_bev
     
     def compute_bev(self, item):
         
@@ -207,7 +289,6 @@ class WorldTrackModel(pl.LightningModule):
         
         return output, output_random
         
-        
 
     def load_cache(self, frames, prev=False):
         idx = []
@@ -219,49 +300,52 @@ class WorldTrackModel(pl.LightningModule):
             if i.nelement() == 1:
                 idx.append(i.item())
         if len(idx) != len(frames):
-            return (None, None)
+            return None
         else:
-            if self.temporal_cache_bev is None:
-                return self.temporal_cache_raw[idx], None
-            return self.temporal_cache_raw[idx], self.temporal_cache_bev[idx]
+            return self.temporal_cache[idx]
 
-    def store_cache(self, frames, bev_raw, bev=None):
+
+    def store_cache(self, frames, bev_raw):
         if self.temporal_cache is None:
             dtype = bev_raw.dtype
             device = bev_raw.device
             shape_raw = list(bev_raw.shape)
             shape_raw[0] = self.max_cache
-            self.temporal_cache_raw = torch.zeros(shape_raw, device=device, dtype=dtype)
-            if bev is not None:
-                shape = list(bev.shape)
-                shape[0] = self.max_cache
-                self.temporal_cache_bev = torch.zeros(shape, device=device, dtype=dtype)
+            self.temporal_cache = torch.zeros(shape_raw, device=device, dtype=dtype)
         
-        if bev is None:
-            for frame, feat_raw in zip(frames, bev_raw):
-                i = (frame == self.temporal_cache_frames).nonzero(as_tuple=True)[0]
-                # Choose unfilled cache slot
-                if i.nelement() == 0:
-                    i = (self.temporal_cache_frames == -2).nonzero(as_tuple=True)[0]
-                # Choose random cache slot
-                if i.nelement() == 0:
-                    i = torch.randint(self.max_cache, (1, 1))
+        for frame, feat_raw in zip(frames, bev_raw):
+            i = (frame == self.temporal_cache_frames).nonzero(as_tuple=True)[0]
+            # Choose unfilled cache slot
+            if i.nelement() == 0:
+                i = (self.temporal_cache_frames == -2).nonzero(as_tuple=True)[0]
+            # Choose random cache slot
+            if i.nelement() == 0:
+                i = torch.randint(self.max_cache, (1, 1))
 
-                self.temporal_cache_raw[i[0]] = feat_raw
-                self.temporal_cache_frames[i[0]] = frame
-        else:
-            for frame, feat_raw, feat in zip(frames, bev_raw, bev):
-                i = (frame == self.temporal_cache_frames).nonzero(as_tuple=True)[0]
-                # Choose unfilled cache slot
-                if i.nelement() == 0:
-                    i = (self.temporal_cache_frames == -2).nonzero(as_tuple=True)[0]
-                # Choose random cache slot
-                if i.nelement() == 0:
-                    i = torch.randint(self.max_cache, (1, 1))
+            self.temporal_cache[i[0]] = feat_raw
+            self.temporal_cache_frames[i[0]] = frame
+        
 
-                self.temporal_cache_raw[i[0]] = feat_raw
-                self.temporal_cache_bev[i[0]] = feat
-                self.temporal_cache_frames[i[0]] = frame
+    def load_identities(self, frame) -> torch.Tensor:
+        if frame in self.moco_memory_bank.keys():
+            return self.moco_memory_bank[frame]
+        return None
+
+
+    def store_identities(self, target, output):
+        frames = target['frame'].cpu()
+        bev_feat = output['instance_id_feat']
+        id_feat, _, counts = self.get_feature_vec_with_pid(bev_feat, target['pid_bev'])
+        
+        for i, frame in enumerate(frames):
+            prev_identities = self.load_identities(frame)
+            feat: torch.Tensor = id_feat[sum(counts[:i]):sum(counts[:i+1])]
+            if prev_identities is None:
+                self.moco_memory_bank[frame] = feat.cpu()
+            else:
+                assert feat.shape == prev_identities.shape, 'feature dim should be the same'
+                self.moco_memory_bank[frame] = prev_identities * 0.9 + feat.cpu() * 0.1
+            
 
     def loss(self, target, output):
         center_e = output['instance_center']
@@ -285,8 +369,6 @@ class WorldTrackModel(pl.LightningModule):
             offset_e[:, 2:], offset_g[:, 2:], reduction='none').sum(dim=1, keepdim=True)
         tracking_loss = basic.reduce_masked_mean(tracking_loss, valid_g)
         
-        reid_self, reid_loss = self.loss_reid(target, output)
-        pose_loss = self.loss_pose(target, output)
 
         if 'size_bev' in target:
             size_g = target['size_bev']
@@ -298,6 +380,13 @@ class WorldTrackModel(pl.LightningModule):
         else:
             size_loss = torch.tensor(0.)
             rot_loss = torch.tensor(0.)
+            
+        if self.learn_reid:
+            reid_loss = self.loss_reid(target, output)
+            pose_loss = self.loss_pose(target, output)
+        else:
+            reid_loss = torch.tensor(0.)
+            pose_loss = torch.tensor(0.)
 
         center_factor = 1 / torch.exp(self.model.center_weight)
         center_loss_weight = center_factor * center_loss
@@ -326,9 +415,6 @@ class WorldTrackModel(pl.LightningModule):
         pose_factor = 1 / torch.exp(self.model.pose_weight)
         pose_loss_weight = pose_factor * pose_loss
         pose_uncertainty_loss = self.model.pose_weight
-        
-        reid_self_weight = reid_factor * reid_loss
-        reid_uncertainty_self = self.model.reid_weight
 
         # img loss
         center_img_loss = self.center_loss_fn(basic.sigmoid(center_img_e), center_img_g) / S
@@ -343,8 +429,6 @@ class WorldTrackModel(pl.LightningModule):
             
             'reid_loss': reid_loss,
             'pose_loss': pose_loss,
-            
-            'reid_self': reid_self,
         }
         loss_weight_dict = {
             'center_loss': 10 * center_loss_weight,
@@ -356,8 +440,6 @@ class WorldTrackModel(pl.LightningModule):
             
             'reid_loss': reid_loss_weight,
             'pose_loss': pose_loss_weight,
-            
-            'reid_self': reid_self_weight,
         }
         stats_dict = {
             'center_uncertainty_loss': center_uncertainty_loss,
@@ -368,8 +450,6 @@ class WorldTrackModel(pl.LightningModule):
             
             'reid_uncertainty_loss': reid_uncertainty_loss,
             'pose_uncertainty_loss': pose_uncertainty_loss,
-            
-            'reid_uncertainty_self': reid_uncertainty_self,
         }
         
         total_loss = sum(loss_weight_dict.values()) + sum(stats_dict.values())
@@ -381,81 +461,100 @@ class WorldTrackModel(pl.LightningModule):
         # info-nce loss
         bev_feat = output['instance_id_feat']        
         # get bev features with pid
-        feat, pid, _ = self.get_feature_vec_with_pid(bev_feat, target['pid_bev'])
+        id_feat, pid, pid_counts = self.get_feature_vec_with_pid(bev_feat, target['pid_bev'])
+        id_feat = F.normalize(id_feat, dim=1)
         
-        feat = F.normalize(feat, dim=1)
+        if self.cont_type == 'simclr':
+            sim_matrix = torch.matmul(id_feat, id_feat.t())
+            logits = sim_matrix / self.temperature
+            
+            mask = torch.zeros_like(logits)
+            for i, p in enumerate(pid):
+                for j, p_self in enumerate(pid):
+                    if p == p_self:
+                        mask[i, j] = 1
+                    else:
+                        mask[i, j] = 0
+            
+            label = ~torch.eye(len(pid), device=self.device).bool()
+            
+            logits = (logits[label]).reshape(len(pid), -1)
+            mask = (mask[label]).reshape(len(pid), -1)
+            # Compute NT-Xent loss
+            log_prob = F.log_softmax(logits, dim=1)
+            # Apply mask to log_prob
+            log_prob_pos = (mask * log_prob).sum(dim=1) / (mask.sum(dim=1) + 1e-6)
+            loss = -log_prob_pos.mean()
         
-        sim_matrix = torch.matmul(feat, feat.t())
-        logits = sim_matrix / self.temperature
-        
-        mask = torch.zeros_like(logits)
-        for i, p in enumerate(pid):
-            for j, p_self in enumerate(pid):
-                if p == p_self:
-                    mask[i, j] = 1
+        elif self.cont_type == 'moco':
+            frames = target['frame']
+            
+            loss = torch.tensor(0., device=self.device)
+            
+            for i, (frame, num_pid) in enumerate(zip(frames, pid_counts)):
+                prev_identities = self.load_identities(frame)
+                if prev_identities is None:
+                    continue
                 else:
-                    mask[i, j] = 0
-        
-        loss = (-logits * mask + torch.logsumexp(logits, dim=1, keepdim=True) * (1-mask)).mean()
-        
-        return loss, torch.tensor(0.)
-        
-        # self distance
-        dist_self = F.cosine_similarity(feat.unsqueeze(1), feat.unsqueeze(0), dim=2)
-        dist_gt_self = torch.zeros_like(dist_self)
-        for i, p in enumerate(pid):
-            for j, p_self in enumerate(pid):
-                if p == p_self:
-                    dist_gt_self[i, j] = 1
-                else:
-                    dist_gt_self[i, j] = 0
-        
-        loss_self = F.mse_loss(dist_self, dist_gt_self)
-        
-        bev_random_feat = self.compute_random_reid(target)
-        
-        # print(loss_self)
-        
-        if bev_random_feat is None or True:
-            return loss_self, torch.tensor(0.)
-        
-        feat_random, pid_random, _ = self.get_feature_vec_with_pid(bev_random_feat, target['pid_bev_rand'])
-        
-        # collect features
-        dist_feat = (1 - F.cosine_similarity(feat.unsqueeze(1), feat_random.unsqueeze(0), dim=2)) / 2
-        
-        # get ground truth distance
-        dist_gt = torch.zeros_like(dist_feat)
-        for i, p in enumerate(pid):
-            for j, p_random in enumerate(pid_random):
-                if p == p_random:
-                    dist_gt[i, j] = 0
-                else:
-                    dist_gt[i, j] = 1
-        
-        # compute loss
-        loss = F.mse_loss(dist_feat, dist_gt)
-        
-        return loss_self, loss
-    
-    def loss_pose(self, target, output):
-        
-        pose_e = output['instance_pose'] # direction
-        offset_g = target['offset_bev'] # velocity
-        pose_g = offset_g[:, 2:]
-        
-        valid_g = target['valid_bev']
-        
-        # normalize velocity
-        pose_g = pose_g / (torch.norm(pose_g, dim=1, keepdim=True) + 1e-6)
-        
-        
-        loss = torch.nn.functional.smooth_l1_loss(
-            pose_e, pose_g, reduction='none').sum(dim=1, keepdim=True)
-        loss = basic.reduce_masked_mean(loss, valid_g)
+                    prev_identities.to(self.device)
+                    identities = id_feat[sum(pid_counts[:i]):sum(pid_counts[:i+1])]
+                    assert identities.shape[0] == num_pid, 'num_pid should be the same'
+                    assert identities.shape[1] == id_feat.shape[1], 'feature dim should be the same'
+                    current_loss = F.mse_loss(identities, prev_identities).mean()
+                    loss += current_loss
         
         return loss
     
+    
+    def loss_pose(self, target, output):
+        
+        if self.learn_pose:
+        
+            pose_e = output['instance_pose'] # direction
+            offset_g = target['offset_bev'] # velocity
+            pose_g = offset_g[:, 2:]
+            
+            # normalize velocity
+            ori_g = pose_g / (torch.norm(pose_g, dim=1, keepdim=True) + 1e-6)
+            
+            if self.learn_cont_pose: # contrastive loss
+                pose_feat, _, _ = self.get_feature_vec_with_pid(pose_e, target['pid_bev'])
+                pose_gt, _, _ = self.get_feature_vec_with_pid(pose_g, target['pid_bev'])
+                
+                pose_feat = F.normalize(pose_feat, dim=1)
+                
+                sim_matrix = torch.matmul(pose_feat, pose_feat.t())
+                logits = sim_matrix / self.temperature_pose
+                
+                
+                label = ~torch.eye(len(pose_feat), device=self.device).bool()
+                
+                pose_sim = ((pose_gt @ pose_gt.t() + 1) / 2).clamp(0, 1)
+                mask = pose_sim * (pose_sim > self.pose_cont_thresh).float()
+                
+                logits = (logits[label]).reshape(len(pose_feat), -1)
+                mask = (mask[label]).reshape(len(pose_feat), -1)
+                # Compute NT-Xent loss
+                log_prob = F.log_softmax(logits, dim=1)
+                # Apply mask to log_prob
+                log_prob_pos = (mask * log_prob).sum(dim=1) / (mask.sum(dim=1) + 1e-6)
+                loss = -log_prob_pos.mean()
+            
+            else: # pose guidance
+                assert pose_e.shape[1] == 4, 'pose_e shape should be 4'
+                valid_g = target['valid_bev']
+                pseudo_label = torch.cat([ori_g, offset_g[:, 2:]], dim=1)
+                loss = torch.nn.functional.smooth_l1_loss(
+                    pose_e, pseudo_label, reduction='none').sum(dim=1, keepdim=True)
+                loss = basic.reduce_masked_mean(loss, valid_g)
+            
+            return loss
+        
+        else:
+            
+            return torch.tensor(0.)
+
+
     def check_distance(self, item, target):
         output, output_random  = \
             self.compute_bev(item)
@@ -485,6 +584,13 @@ class WorldTrackModel(pl.LightningModule):
         0~K: person id
         '''
         
+        # count pid numbers for each bev
+        B = bev.shape[0]
+        counts = []
+        for i in range(B):
+            unique_pid = torch.unique(pid[i].flatten())
+            counts.append(len(unique_pid)-1)
+        
         # filter out the background
         
         bev = bev.permute(0, 2, 3, 1)
@@ -499,19 +605,20 @@ class WorldTrackModel(pl.LightningModule):
         # bev: N, C
         # pid: N
         
-        # get unique pid
-        unique_pid = torch.unique(pid)
-        
-        return bev, pid, unique_pid
+        return bev, pid, counts
+
 
     def training_step(self, batch, batch_idx):
         item, target = batch
         output = self(item, is_train=True)
         
-        if batch_idx < 5:
+        if batch_idx < 3:
             self.plot_data_train(item, target, output, batch_idx)
 
         total_loss, loss_dict = self.loss(target, output)
+        
+        if self.learn_reid and self.cont_type == 'moco':
+            self.store_identities(target, output)
 
         B = item['img'].shape[0]
         self.log('train_loss', total_loss, prog_bar=True, batch_size=B)
@@ -519,6 +626,7 @@ class WorldTrackModel(pl.LightningModule):
             self.log(f'train/{key}', value, batch_size=B)
 
         return total_loss
+
 
     def validation_step(self, batch, batch_idx):
         item, target = batch
@@ -529,6 +637,9 @@ class WorldTrackModel(pl.LightningModule):
         self.plot_data(target, output, batch_idx)
 
         total_loss, loss_dict = self.loss(target, output)
+        
+        if self.learn_reid and self.cont_type == 'moco':
+            self.store_identities(target, output)
 
         B = item['img'].shape[0]
         self.log('val_loss', total_loss, batch_size=B, sync_dist=True)
@@ -537,265 +648,363 @@ class WorldTrackModel(pl.LightningModule):
             self.log(f'val/{key}', value, batch_size=B, sync_dist=True)
         return total_loss
 
+
     def test_step(self, batch, batch_idx):
-        
-        item, target = batch
-        
-        dist_self, dist_random, pid, pid_random = \
-            self.check_distance(item, target)
-            
-        for i, p in enumerate(pid):
-            
-            for j, p_self in enumerate(pid):
-                
-                if self.feat_dist_count_self[p, p_self] == 0:
-                    self.feat_dist_self[p, p_self] = dist_self[i, j]
-                else:
-                    self.feat_dist_self[p, p_self] = \
-                        (self.feat_dist_self[p, p_self] * \
-                        self.feat_dist_count_self[p, p_self] + dist_self[i, j]) / \
-                        (self.feat_dist_count_self[p, p_self] + 1)
-                
-                self.feat_dist_count_self[p, p_self] += 1
-                
-            # print(dist_prev.shape, pid_prev.shape)
-            
-            min_p_prev = pid[torch.argmin(dist_self[i])]
-            
-            if p == min_p_prev:
-                self.feat_correct_self += 1
-            self.feat_total_self += 1
-                
-            for j, p_random in enumerate(pid_random):
-                    
-                if self.feat_dist_count_random[p, p_random] == 0:
-                    self.feat_dist_random[p, p_random] = dist_random[i, j]
-                else:
-                    self.feat_dist_random[p, p_random] = \
-                        (self.feat_dist_random[p, p_random] * \
-                        self.feat_dist_count_random[p, p_random] + dist_random[i, j]) / \
-                        (self.feat_dist_count_random[p, p_random] + 1)
-                
-                self.feat_dist_count_random[p, p_random] += 1
-                
-            min_p_random = pid_random[torch.argmin(dist_random[i])]
-            if p == min_p_random:
-                self.feat_correct_random += 1
-            self.feat_total_random += 1
-        
-        
-    def test_step_(self, batch, batch_idx):
         item, target = batch
         output = self(item)
+        
+        if self.test_mode == 'tracking':
 
-        # ref_T_global = item['ref_T_global']
-        # global_T_ref = torch.inverse(ref_T_global)
+            # output on bev plane
+            center_e = output['instance_center']
+            offset_e = output['instance_offset']
+            size_e = output['instance_size']
+            rot_e = output['instance_rot']
+            
+            
+            self.draw_detection(item, output, batch_idx)
+            
+            if self.use_reid_tracking:
+                id_e = output['instance_id_feat']
+                xy_e, xy_prev_e, scores_e, classes_e, sizes_e, rzs_e, reid_e = decode.decoder_reid(
+                    center_e.sigmoid(), offset_e, size_e, rz_e=rot_e, reid_e=id_e, K=self.max_detections
+                )
+            else:
+                xy_e, xy_prev_e, scores_e, classes_e, sizes_e, rzs_e = decode.decoder(
+                    center_e.sigmoid(), offset_e, size_e, rz_e=rot_e, K=self.max_detections
+                )
 
-        # output on bev plane
-        center_e = output['instance_center']
-        offset_e = output['instance_offset']
-        size_e = output['instance_size']
-        rot_e = output['instance_rot']
+            mem_xyz = torch.cat((xy_e, torch.zeros_like(xy_e[..., 0:1])), dim=2)
+            ref_xy = self.vox_util.Mem2Ref(mem_xyz, self.Y, self.Z, self.X)[..., :2]
+
+            mem_xyz_prev = torch.cat((xy_prev_e, torch.zeros_like(xy_e[..., 0:1])), dim=2)
+            ref_xy_prev = self.vox_util.Mem2Ref(mem_xyz_prev, self.Y, self.Z, self.X)[..., :2]
+
+            # detection
+            for frame, grid_gt, xy, score in zip(item['frame'], item['grid_gt'], ref_xy, scores_e):
+                frame = int(frame.item())
+                valid = score > self.conf_threshold
+                
+                gt_list = [[frame, x.item(), y.item()] for x, y, _ in grid_gt[grid_gt.sum(1) != 0]]
+                gt_list = np.array(gt_list)
+                gt_list = gt_list[gt_list[:, 0] == frame]
+
+                if len(gt_list) > 0:
+                    self.moda_gt_list.extend(gt_list.tolist())
+                self.moda_pred_list.extend([[frame, x.item(), y.item()] for x, y in xy[valid]])
+                
+            mota_now = []
+            
+            # tracking
+            if self.use_reid_tracking:
+                for seq_num, frame, grid_gt, bev_det, bev_prev, score, reid, in (
+                        zip(item['sequence_num'], item['frame'], item['grid_gt'], ref_xy.cpu(), ref_xy_prev.cpu(),
+                            scores_e.cpu(), reid_e.cpu())):
+                    frame = int(frame.item())
+                    output_stracks = self.test_tracker.update_old(bev_det, bev_prev, score, reid)
+                    
+                    mota_gt = [[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
+                            for x, y, i in grid_gt[grid_gt.sum(1) != 0]]
+                    mota_pred = [[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
+                                    + s.xy.tolist() + [-1] for s in output_stracks]
+                    
+                    mota_gt = np.array(mota_gt)
+                    mota_pred = np.array(mota_pred)
+                    if len(mota_gt) == 0 or len(mota_pred) == 0:
+                        mota_pred = np.zeros((0, 11))
+                    
+                    mota_gt = mota_gt[mota_gt[:, 0] == seq_num.item()]
+                    mota_pred = mota_pred[mota_pred[:, 0] == seq_num.item()]
+                    
+                    self.mota_gt_list.extend(mota_gt.tolist())
+                    self.mota_pred_list.extend(mota_pred.tolist())
+            
+                    mota_now.extend(mota_pred.tolist())
+            else:
+                for seq_num, frame, grid_gt, bev_det, bev_prev, score, in (
+                        zip(item['sequence_num'], item['frame'], item['grid_gt'], ref_xy.cpu(), ref_xy_prev.cpu(),
+                            scores_e.cpu())):
+                    frame = int(frame.item())
+                    # output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
+                    output_stracks = self.test_tracker.update_old(bev_det, bev_prev, score)
+                    
+                    mota_gt = [[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
+                            for x, y, i in grid_gt[grid_gt.sum(1) != 0]]
+                    mota_pred = [[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
+                                    + s.xy.tolist() + [-1] for s in output_stracks]
+                    
+                    mota_gt = np.array(mota_gt)
+                    mota_pred = np.array(mota_pred)
+                    if len(mota_gt) == 0 or len(mota_pred) == 0:
+                        mota_pred = np.zeros((0, 11))
+                    
+                    mota_gt = mota_gt[mota_gt[:, 0] == seq_num.item()]
+                    mota_pred = mota_pred[mota_pred[:, 0] == seq_num.item()]
+                    
+                    self.mota_gt_list.extend(mota_gt.tolist())
+                    self.mota_pred_list.extend(mota_pred.tolist())
+            
+                    mota_now.extend(mota_pred.tolist())
+            
+            self.draw_prediction(item, output, mota_now, batch_idx)
+            
+            
+                # self.mota_gt_list.extend([[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
+                #                           for x, y, i in grid_gt[grid_gt.sum(1) != 0]])
+                # self.mota_pred_list.extend([[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
+                #                             + s.xy.tolist() + [-1]
+                #                             for s in output_stracks])
         
         
-        self.draw_detection(item, output, batch_idx)
-
-        xy_e, xy_prev_e, scores_e, classes_e, sizes_e, rzs_e = decode.decoder(
-            center_e.sigmoid(), offset_e, size_e, rz_e=rot_e, K=self.max_detections
-        )
-
-        mem_xyz = torch.cat((xy_e, torch.zeros_like(xy_e[..., 0:1])), dim=2)
-        ref_xy = self.vox_util.Mem2Ref(mem_xyz, self.Y, self.Z, self.X)[..., :2]
-
-        mem_xyz_prev = torch.cat((xy_prev_e, torch.zeros_like(xy_e[..., 0:1])), dim=2)
-        ref_xy_prev = self.vox_util.Mem2Ref(mem_xyz_prev, self.Y, self.Z, self.X)[..., :2]
-
-        # detection
-        for frame, grid_gt, xy, score in zip(item['frame'], item['grid_gt'], ref_xy, scores_e):
-            frame = int(frame.item())
-            valid = score > self.conf_threshold
-            
-            gt_list = [[frame, x.item(), y.item()] for x, y, _ in grid_gt[grid_gt.sum(1) != 0]]
-            gt_list = np.array(gt_list)
-            gt_list = gt_list[gt_list[:, 0] == frame]
-
-            if len(gt_list) > 0:
-                self.moda_gt_list.extend(gt_list.tolist())
-            self.moda_pred_list.extend([[frame, x.item(), y.item()] for x, y in xy[valid]])
-            
-        mota_now = []
+                # self.mota_gt_list.extend([[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
+                #                           for x, y, i in grid_gt[grid_gt.sum(1) != 0]])
+                # self.mota_pred_list.extend([[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
+                #                             + s.xy.tolist() + [-1]
+                #                             for s in output_stracks])
         
-        # tracking
-        for seq_num, frame, grid_gt, bev_det, bev_prev, score, in (
-                zip(item['sequence_num'], item['frame'], item['grid_gt'], ref_xy.cpu(), ref_xy_prev.cpu(),
-                    scores_e.cpu())):
-            frame = int(frame.item())
-            output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
+        elif self.test_mode == 'feature_distance':
+            item, target = batch
             
-            mota_gt = [[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
-                       for x, y, i in grid_gt[grid_gt.sum(1) != 0]]
-            mota_pred = [[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
-                            + s.xy.tolist() + [-1] for s in output_stracks]
-            
-            mota_gt = np.array(mota_gt)
-            mota_pred = np.array(mota_pred)
-            if len(mota_gt) == 0 or len(mota_pred) == 0:
-                mota_pred = np.zeros((0, 11))
-            
-            mota_gt = mota_gt[mota_gt[:, 0] == seq_num.item()]
-            mota_pred = mota_pred[mota_pred[:, 0] == seq_num.item()]
-            
-            self.mota_gt_list.extend(mota_gt.tolist())
-            self.mota_pred_list.extend(mota_pred.tolist())
-    
-            mota_now.extend(mota_pred.tolist())
+            dist_self, dist_random, pid, pid_random = \
+                self.check_distance(item, target)
+                
+            for i, p in enumerate(pid):
+                
+                for j, p_self in enumerate(pid):
+                    
+                    if self.feat_dist_count_self[p, p_self] == 0:
+                        self.feat_dist_self[p, p_self] = dist_self[i, j]
+                    else:
+                        self.feat_dist_self[p, p_self] = \
+                            (self.feat_dist_self[p, p_self] * \
+                            self.feat_dist_count_self[p, p_self] + dist_self[i, j]) / \
+                            (self.feat_dist_count_self[p, p_self] + 1)
+                    
+                    self.feat_dist_count_self[p, p_self] += 1
+                    
+                # print(dist_prev.shape, pid_prev.shape)
+                
+                min_p_prev = pid[torch.argmin(dist_self[i])]
+                
+                if p == min_p_prev:
+                    self.feat_correct_self += 1
+                self.feat_total_self += 1
+                    
+                for j, p_random in enumerate(pid_random):
+                        
+                    if self.feat_dist_count_random[p, p_random] == 0:
+                        self.feat_dist_random[p, p_random] = dist_random[i, j]
+                    else:
+                        self.feat_dist_random[p, p_random] = \
+                            (self.feat_dist_random[p, p_random] * \
+                            self.feat_dist_count_random[p, p_random] + dist_random[i, j]) / \
+                            (self.feat_dist_count_random[p, p_random] + 1)
+                    
+                    self.feat_dist_count_random[p, p_random] += 1
+                    
+                min_p_random = pid_random[torch.argmin(dist_random[i])]
+                if p == min_p_random:
+                    self.feat_correct_random += 1
+                self.feat_total_random += 1
         
-        self.draw_prediction(item, output, mota_now, batch_idx)
-        
-            # self.mota_gt_list.extend([[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
-            #                           for x, y, i in grid_gt[grid_gt.sum(1) != 0]])
-            # self.mota_pred_list.extend([[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
-            #                             + s.xy.tolist() + [-1]
-            #                             for s in output_stracks])
+        elif self.test_mode == 'save_features':
+            
+            log_dir = self.trainer.log_dir
+            assert log_dir is not None, 'log_dir should not be None'
+            
+            if not osp.exists(osp.join(log_dir, 'feat')):
+                os.makedirs(osp.join(log_dir, 'feat'))
+            
+            item, target = batch
+            
+            feat_bev = output['instance_id_feat']
+            pid_bev = target['pid_bev']
+            
+            feat, pid, counts = self.get_feature_vec_with_pid(feat_bev, pid_bev)
+            
+            for i, frame in enumerate(item['frame']):
+                pid_i = pid[sum(counts[:i]):sum(counts[:i+1])]
+                feat_i = feat[sum(counts[:i]):sum(counts[:i+1])]
+                
+                for p, f in zip(pid_i, feat_i):
+                    f = f.cpu().detach().numpy()
+                    np.save(osp.join(log_dir, f'feat/{p}_{int(frame.cpu())}.npy'), f)
+
+            if self.learn_cont_pose:
+                
+                if not osp.exists(osp.join(log_dir, 'pose')):
+                    os.makedirs(osp.join(log_dir, 'pose'))
+                
+                pose_bev = output['instance_pose']
+                vel_bev = target['offset_bev'][:, 2:]
+                pose, _, _ = self.get_feature_vec_with_pid(pose_bev, pid_bev)
+                vel, _, _ = self.get_feature_vec_with_pid(vel_bev, pid_bev)
+                
+                for i, frame in enumerate(item['frame']):
+                    pose_i = pose[sum(counts[:i]):sum(counts[:i+1])]
+                    vel_i = vel[sum(counts[:i]):sum(counts[:i+1])]
+                    
+                    for v, f in zip(vel_i, pose_i):
+                        f = f.cpu().detach().numpy()
+                        v = v.cpu().detach().numpy()
+                        v = "_".join([str(x) for x in v])
+                        np.save(osp.join(log_dir, f'pose/{v}_{int(frame.cpu())}.npy'), f)
 
     def on_test_epoch_end(self):
-        log_dir = self.trainer.log_dir if self.trainer.log_dir is not None else '../data/cache'
         
-        acc_self = self.feat_correct_self / self.feat_total_self
-        acc_random = self.feat_correct_random / self.feat_total_random
+        if self.test_mode == 'tracking':
         
-        self.log('acc_self', acc_self)
-        self.log('acc_random', acc_random)
-        
-        # print(f'prev: {acc_prev}, random: {acc_random}, feat: {acc_feat}')
-        # clip pids
-        count_sum = self.feat_dist_count_self.sum(1) + self.feat_dist_count_random.sum(1)
-        
-        max_pid = torch.argmin(count_sum)
-        # print(count_sum, max_pid)
-        
-        self.feat_dist_self = self.feat_dist_self[:max_pid, :max_pid]
-        self.feat_dist_random = self.feat_dist_random[:max_pid, :max_pid]
-        
-        # save plots to tensorboard in eval loop
-        
-        # set dist to 2 if not calculated
-        self.feat_dist_self[self.feat_dist_self == -1] = 2
-        self.feat_dist_random[self.feat_dist_random == -1] = 2
-        
-        # normalize to 0 to 1
-        self.feat_dist_self /= 2.
-        self.feat_dist_random /= 2.
-        
-        # to numpy
-        dist_self = self.feat_dist_self.detach().cpu().numpy()
-        dist_random = self.feat_dist_random.detach().cpu().numpy()
-        
-        writer = self.logger.experiment
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 8))
-        ax1.imshow(dist_self)
-        ax2.imshow(dist_random)
-        
-        ax1.set_title('self')
-        ax2.set_title('random')
-        
-        plt.tight_layout()
-        writer.add_figure(f'plot/feature_distance', fig, global_step=self.global_step)
-        plt.close(fig)
-        
-
-    def on_test_epoch_end_(self):
-        log_dir = self.trainer.log_dir if self.trainer.log_dir is not None else '../data/cache'
-
-        # detection
-        pred_path = osp.join(log_dir, 'moda_pred.txt')
-        gt_path = osp.join(log_dir, 'moda_gt.txt')
-        np.savetxt(pred_path, np.array(self.moda_pred_list), '%f', delimiter=' ', newline='\n')
-        np.savetxt(gt_path, np.array(self.moda_gt_list), '%d', delimiter=' ', newline='\n')
-        recall, precision, moda, modp = modMetricsCalculator(osp.abspath(pred_path), osp.abspath(gt_path))
-        self.log(f'detect/recall', recall)
-        self.log(f'detect/precision', precision)
-        self.log(f'detect/moda', moda)
-        self.log(f'detect/modp', modp)
-
-        # tracking
-        scale = 1 if self.X == 150 else 0.025  # HACK
-        scale = 0.01
-        pred_path = osp.join(log_dir, 'mota_pred.txt')
-        gt_path = osp.join(log_dir, 'mota_gt.txt')
-        np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')
-        np.savetxt(gt_path, np.array(self.mota_gt_list), '%f', delimiter=',')
-        summary = mot_metrics(osp.abspath(pred_path), osp.abspath(gt_path), scale)
-        summary = summary.loc['OVERALL']
-        for key, value in summary.to_dict().items():
-            if value >= 1 and key[:3] != 'num':
-                value /= summary.to_dict()['num_unique_objects']
-            value = value * 100 if value < 1 else value
-            value = 100 - value if key == 'motp' else value
-            self.log(f'track/{key}', value)
-
-    def predict_step(self, batch, batch_idx):
-        item, _ = batch
-        output = self(item)
-
-        center_e = output['instance_center']
-        offset_e = output['instance_offset']
-        size_e = output['instance_size']
-        rot_e = output['instance_rot']
-
-        xy_e, xy_prev_e, scores_e, classes_e, sizes_e, rzs_e = decode.decoder(
-            center_e.sigmoid(), offset_e, size_e, rz_e=rot_e, K=self.max_detections
-        )
-
-        mem_xyz = torch.cat((xy_e, torch.zeros_like(xy_e[..., 0:1])), dim=2)
-        ref_xy = self.vox_util.Mem2Ref(mem_xyz, self.Y, self.Z, self.X)[..., :2]
-
-        mem_xyz_prev = torch.cat((xy_prev_e, torch.zeros_like(xy_e[..., 0:1])), dim=2)
-        ref_xy_prev = self.vox_util.Mem2Ref(mem_xyz_prev, self.Y, self.Z, self.X)[..., :2]
-
-        # detection
-        for frame, xy, score in zip(item['frame'], ref_xy, scores_e):
-            frame = int(frame.item())
-            valid = score > self.conf_threshold
-            self.moda_pred_list.extend([[frame, x.item(), y.item()] for x, y in xy[valid]])
+            log_dir = self.trainer.log_dir if self.trainer.log_dir is not None else '../data/cache'
             
-        mota_now = []
+            # detection
+            '''
+            unit: 2.5cm for wildtrack, multiviewx
+                    1cm for aicity_lt, aicity
+            '''
+            unit = 2.5 if self.test_dataset == 'wildtrack' or self.test_dataset == 'multiviewx' \
+                else 1. if self.test_dataset == 'aicity_lt' or self.test_dataset == 'aicity' \
+                else 1.
+            # detection
+            pred_path = osp.join(log_dir, 'moda_pred.txt')
+            gt_path = osp.join(log_dir, 'moda_gt.txt')
+            np.savetxt(pred_path, np.array(self.moda_pred_list), '%f', delimiter=' ', newline='\n')
+            np.savetxt(gt_path, np.array(self.moda_gt_list), '%d', delimiter=' ', newline='\n')
+            recall, precision, moda, modp = modMetricsCalculator(osp.abspath(pred_path), osp.abspath(gt_path), unit)
+            self.log(f'detect/recall', recall)
+            self.log(f'detect/precision', precision)
+            self.log(f'detect/moda', moda)
+            self.log(f'detect/modp', modp)
+
+            # tracking
+            '''
+            unit: 2.5cm for wildtrack, multiviewx
+                    1cm for aicity_lt, aicity
+            '''
+            scale = 0.025 if self.test_dataset == 'wildtrack' or self.test_dataset == 'multiviewx' \
+                else 0.01 if self.test_dataset == 'aicity_lt' or self.test_dataset == 'aicity' \
+                else 1.
+            pred_path = osp.join(log_dir, 'mota_pred.txt')
+            gt_path = osp.join(log_dir, 'mota_gt.txt')
+            np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')
+            np.savetxt(gt_path, np.array(self.mota_gt_list), '%f', delimiter=',')
+            summary = mot_metrics(osp.abspath(pred_path), osp.abspath(gt_path), scale)
+            summary = summary.loc['OVERALL']
+            for key, value in summary.to_dict().items():
+                if value >= 1 and key[:3] != 'num':
+                    value /= summary.to_dict()['num_unique_objects']
+                value = value * 100 if value < 1 else value
+                value = 100 - value if key == 'motp' else value
+                self.log(f'track/{key}', value)
         
-        # tracking
-        for seq_num, frame, bev_det, bev_prev, score, in (
-                zip(item['sequence_num'], item['frame'], ref_xy.cpu(), ref_xy_prev.cpu(),
-                    scores_e.cpu())):
-            frame = int(frame.item())
-            output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
+        elif self.test_mode == 'feature_distance':
+            log_dir = self.trainer.log_dir if self.trainer.log_dir is not None else '../data/cache'
             
-            mota_pred = [[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
-                            + s.xy.tolist() + [-1] for s in output_stracks]
+            acc_self = self.feat_correct_self / self.feat_total_self
+            acc_random = self.feat_correct_random / self.feat_total_random
             
-            mota_pred = np.array(mota_pred)
-            if len(mota_pred) == 0:
-                mota_pred = np.zeros((0, 11))
-
-            mota_pred = mota_pred[mota_pred[:, 0] == seq_num.item()]
-            self.mota_pred_list.extend(mota_pred.tolist())
+            self.log('acc_self', acc_self)
+            self.log('acc_random', acc_random)
             
-            mota_now.extend(mota_pred.tolist())
+            # print(f'prev: {acc_prev}, random: {acc_random}, feat: {acc_feat}')
+            # clip pids
+            count_sum = self.feat_dist_count_self.sum(1) + self.feat_dist_count_random.sum(1)
+            
+            max_pid = torch.argmin(count_sum)
+            # print(count_sum, max_pid)
+            
+            self.feat_dist_self = self.feat_dist_self[:max_pid, :max_pid]
+            self.feat_dist_random = self.feat_dist_random[:max_pid, :max_pid]
+            
+            # save plots to tensorboard in eval loop
+            
+            # set dist to 2 if not calculated
+            self.feat_dist_self[self.feat_dist_self == -1] = 2
+            self.feat_dist_random[self.feat_dist_random == -1] = 2
+            
+            # normalize to 0 to 1
+            self.feat_dist_self /= 2.
+            self.feat_dist_random /= 2.
+            
+            # to numpy
+            dist_self = self.feat_dist_self.detach().cpu().numpy()
+            dist_random = self.feat_dist_random.detach().cpu().numpy()
+            
+            writer = self.logger.experiment
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 8))
+            ax1.imshow(dist_self)
+            ax2.imshow(dist_random)
+            
+            ax1.set_title('self')
+            ax2.set_title('random')
+            
+            plt.tight_layout()
+            writer.add_figure(f'plot/feature_distance', fig, global_step=self.global_step)
+            plt.close(fig)
         
-        self.draw_prediction(item, output, mota_now)
-        
-        return self.moda_pred_list, self.mota_pred_list
+        elif self.test_mode == 'save_features':
+            # load all features
+            log_dir = self.trainer.log_dir
+            feat_dir = osp.join(log_dir, 'feat')
+            features = []
+            pids = []
+            
+            for file in os.listdir(feat_dir):
+                if file.endswith('.npy'):
+                    pid = int(file.split('_')[0])
+                    feat = np.load(osp.join(feat_dir, file))
+                    features.append(feat)
+                    pids.append(pid)
+            
+            features = np.array(features)
+            pids = np.array(pids)
+            
+            MAX_TRYOUT = 5
+            NUM_CHOICE = 10
+            
+            for i in range(MAX_TRYOUT):
+                # choice random pid and their indexes for features and pids
+                random_pid_list = np.random.choice(np.unique(pids), NUM_CHOICE, replace=False)
+                random_indexes = []
+                for pid in random_pid_list:
+                    random_indexes.extend(np.where(pids == pid)[0].tolist())
+                random_features = features[random_indexes]
+                random_pids = pids[random_indexes]
+                
+                tsne = TSNE(n_components=2, random_state=42)
+                tsne_results = tsne.fit_transform(random_features)
+                
+                self.visualize_tsne(tsne_results, random_pids, index=i)
+                
+            tsne = TSNE(n_components=2, random_state=42)
+            tsne_results = tsne.fit_transform(features)
+            
+            self.visualize_tsne(tsne_results, pids, 'all')
+            
+            if self.learn_cont_pose:
+                pose_dir = osp.join(log_dir, 'pose')
+                poses = []
+                velocities = []
+                for file in os.listdir(pose_dir):
+                    if file.endswith('.npy'):
+                        pose = np.load(osp.join(pose_dir, file))
+                        # Assuming filename format is 'u_v_frame.npy'
+                        velocity = tuple(map(float, file.split('_')[0:2]))  
+                        poses.append(pose)
+                        velocities.append(velocity)
+                
+                poses = np.array(poses)
+                velocities = np.array(velocities)
+                
+                tsne = TSNE(n_components=2, random_state=42)
+                tsne_pose_results = tsne.fit_transform(poses)
+                
+                self.visualize_tsne_pose(tsne_pose_results, velocities)
 
-    def on_predict_epoch_end(self):
-        log_dir = self.trainer.log_dir if self.trainer.log_dir is not None else '../data/cache'
-
-        # detection
-        pred_path = osp.join(log_dir, 'moda_pred.txt')
-        np.savetxt(pred_path, np.array(self.moda_pred_list), '%f', delimiter=' ', newline='\n')
-
-        # tracking
-        pred_path = osp.join(log_dir, 'mota_pred.txt')
-        np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')
 
     def plot_data(self, target, output, batch_idx=0):
+        
+        writer = self.logger.experiment
+        
         center_e = output['instance_center']
         center_g = target['center_bev']
 
@@ -810,6 +1019,7 @@ class WorldTrackModel(pl.LightningModule):
         writer.add_figure(f'plot/{batch_idx}', fig, global_step=self.global_step)
         plt.close(fig)
         
+        
     def draw_detection(self, item, output, batch_idx=0):
         
         writer = self.logger.experiment
@@ -819,8 +1029,6 @@ class WorldTrackModel(pl.LightningModule):
         pix_T_cams: torch.Tensor = item['intrinsic'][0]
         cams_T_global: torch.Tensor = item['extrinsic'][0]
         ref_T_global: torch.Tensor = item['ref_T_global'][0]
-        
-        # print(center_e.shape, rgb_cams.shape, pix_T_cams.shape, cams_T_global.shape, ref_T_global.shape)
         
         S = rgb_cams.shape[0]
         heatmap = center_e.amax(0).sigmoid().squeeze().cpu().unsqueeze(0).unsqueeze(0).repeat(S, 1, 1, 1)
@@ -849,16 +1057,6 @@ class WorldTrackModel(pl.LightningModule):
         writer.add_figure(f'det/{batch_idx}', fig, global_step=self.global_step)
         plt.close(fig)
 
-    def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            optimizer, max_lr=self.learning_rate, total_steps=self.trainer.estimated_stepping_batches,
-        )
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {"scheduler": scheduler, "interval": "step"}
-        }
-        
     
     def plot_data_train(self, item, target, output, batch_idx=0):
         
@@ -963,13 +1161,82 @@ class WorldTrackModel(pl.LightningModule):
             cams[cam_idx] = img
         
         # draw mosaic
-        mosaic = np.concatenate([cams[0], cams[1], cams[2]], axis=1)
+        # mosaic tiles
+        r = np.ceil(np.sqrt(S)).astype(int)
+        mosaic = np.zeros((r*720, r*1280, 3), dtype=np.uint8)
+        for cam_idx in range(S):
+            x = cam_idx % r
+            y = cam_idx // r
+            mosaic[y*720:(y+1)*720, x*1280:(x+1)*1280] = cams[cam_idx]
         fig = plt.figure(figsize=(12, 8))
         plt.imshow(mosaic)
         plt.axis('off')
         plt.tight_layout()
         writer.add_figure(f'predict/{batch_idx}', fig, global_step=self.global_step)
         
+
+    def visualize_tsne(self, tsne_results, pids, index=0):
+        
+        writer = self.logger.experiment
+        
+        plt.figure(figsize=(10, 8))
+        unique_pids = np.unique(pids)
+        colors = plt.cm.get_cmap('tab20', len(unique_pids))
+        pid_to_color = {pid: colors(i) for i, pid in enumerate(unique_pids)}
+        pid_colors = [pid_to_color[pid] for pid in pids]
+        scatter = plt.scatter(tsne_results[:, 0], tsne_results[:, 1], c=pid_colors, alpha=0.7)
+        plt.title('t-SNE of Feature Vectors')
+        legend_handles = [mpatches.Patch(color=mcolors.to_rgba(pid_to_color[pid]), label=f'{pid}') for pid in unique_pids]
+        plt.legend(handles=legend_handles, title='PID')
+        # plt.xlabel('t-SNE 1')
+        # plt.ylabel('t-SNE 2')
+        
+        writer.add_figure(f'tsne visualization of identity features {index}', 
+                          plt.gcf(), global_step=self.global_step)
+        
+
+    def visualize_tsne_pose(self, tsne_pose_results, velocities):
+        
+        
+        writer = self.logger.experiment
+        
+        def calculate_velocity_magnitude_and_direction(velocities):
+            magnitudes = np.linalg.norm(velocities, axis=1)
+            directions = np.arctan2(velocities[:, 1], velocities[:, 0])  # Angle in radians
+            return magnitudes, directions
+        
+        def velocities_to_hsv(magnitudes, directions):
+            # Normalize magnitudes to [0, 1]
+            magnitudes = (magnitudes - magnitudes.min()) / (magnitudes.max() - magnitudes.min())
+            
+            # Normalize directions to [0, 1]
+            directions = (directions + np.pi) / (2 * np.pi)
+            
+            hsv_colors = np.zeros((len(magnitudes), 3))
+            hsv_colors[:, 0] = directions  # Hue
+            hsv_colors[:, 1] = magnitudes  # Saturation
+            hsv_colors[:, 2] = 1.0  # Value
+            return hsv_colors
+
+        def hsv_to_rgb(hsv_colors):
+            rgb_colors = mcolors.hsv_to_rgb(hsv_colors)
+            return rgb_colors
+        
+        magnitudes, directions = calculate_velocity_magnitude_and_direction(velocities)
+        hsv_colors = velocities_to_hsv(magnitudes, directions)
+        rgb_colors = hsv_to_rgb(hsv_colors)
+        
+        plt.figure(figsize=(10, 8))
+        scatter = plt.scatter(tsne_pose_results[:, 0], tsne_pose_results[:, 1], 
+                              c=rgb_colors, alpha=0.5)
+        plt.colorbar(scatter, label='Velocity (u, v)')
+        plt.title('t-SNE of Pose Embeddings')
+        
+        writer.add_figure('tsne visualization of pose embeddings', 
+                          plt.gcf(), global_step=self.global_step)
+        
+    
+    
 if __name__ == '__main__':
     from lightning.pytorch.cli import LightningCLI
     torch.set_float32_matmul_precision('medium')
@@ -979,6 +1246,7 @@ if __name__ == '__main__':
             parser.link_arguments("model.resolution", "data.init_args.resolution")
             parser.link_arguments("model.bounds", "data.init_args.bounds")
             parser.link_arguments("trainer.accumulate_grad_batches", "data.init_args.accumulate_grad_batches")
+            parser.link_arguments("data.init_args.data_dir", "model.test_dataset_dir")
 
 
     cli = MyLightningCLI(WorldTrackModel)

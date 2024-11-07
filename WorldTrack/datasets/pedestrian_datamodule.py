@@ -6,7 +6,6 @@ from torch.utils.data import DataLoader
 
 from datasets.multiviewx_dataset import MultiviewX
 from datasets.wildtrack_dataset import Wildtrack
-from datasets.wildtrack_dataset_3cam import Wildtrack3cam
 from datasets.hdc_dataset import HDC
 from datasets.aicity_dataset import AiCity
 from datasets.pedestrian_dataset import PedestrianDataset
@@ -22,6 +21,7 @@ class PedestrianDataModule(pl.LightningDataModule):
             resolution=None,
             bounds=None,
             accumulate_grad_batches=8,
+            test_reid: bool=False,
     ):
         super().__init__()
         self.data_dir = data_dir
@@ -36,11 +36,11 @@ class PedestrianDataModule(pl.LightningDataModule):
         self.data_test = None
         self.data_val = None
         self.data_train = None
+        
+        self.test_reid = test_reid
 
     def setup(self, stage: Optional[str] = None):
         if 'wildtrack' in self.dataset.lower():
-            if '3cam' in self.dataset.lower():
-                base = Wildtrack3cam(self.data_dir)
             base = Wildtrack(self.data_dir)
         elif 'multiviewx' in self.dataset.lower():
             base = MultiviewX(self.data_dir)
@@ -70,15 +70,8 @@ class PedestrianDataModule(pl.LightningDataModule):
                 base,
                 is_train=False,
                 resolution=self.resolution,
-                bounds=self.bounds
-            )
-        if stage == 'predict':
-            self.data_predict = PedestrianDataset(
-                base,
-                is_train=False,
-                resolution=self.resolution,
                 bounds=self.bounds,
-                inference=True
+                test_reid=self.test_reid
             )
 
     def train_dataloader(self):

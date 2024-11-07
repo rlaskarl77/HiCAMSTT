@@ -158,7 +158,8 @@ class Bevformernet(nn.Module):
                  feat2d_dim=128,
                  num_classes=None,
                  z_sign=1,
-                 encoder_type='swin_t'):
+                 encoder_type='swin_t',
+                 decoder_args=None):
         super(Bevformernet, self).__init__()
         assert (encoder_type in ['res101', 'res50', 'res18', 'effb0', 'effb4', 'swin_t'])
 
@@ -227,6 +228,7 @@ class Bevformernet(nn.Module):
             in_channels=latent_dim,
             n_classes=num_classes,
             feat2d=feat2d_dim,
+            **decoder_args
         )
 
         # Weights
