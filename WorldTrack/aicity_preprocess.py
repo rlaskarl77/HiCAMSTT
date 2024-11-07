@@ -107,8 +107,8 @@ def downsample_ground_truth(ground_gt_path, output_gt_path, original_fps=30, tar
             downsampled_lines.append(" ".join(fields) + "\n")
             new_frame_id += 1
 
-    if first_original_frame_id == 2 and last_original_frame_id == 23972:
-        print("First and last frame IDs match expected values: 2 and 23972.")
+    if first_original_frame_id == 2 and last_original_frame_id == 23987:
+        print("First and last frame IDs match expected values: 2 and 23987.")
     else:
         print(f"Unexpected first and last frame IDs: {first_original_frame_id} and {last_original_frame_id}")
 
@@ -116,6 +116,40 @@ def downsample_ground_truth(ground_gt_path, output_gt_path, original_fps=30, tar
         f_out.writelines(downsampled_lines)
     print(f"Downsampled Ground Truth saved to {output_gt_path}")
 
+def get_worldgrid_from_worldcoord(world_coord, xworld_min, yworld_min, map_expand=40):
+    coord_x, coord_y = world_coord
+    grid_x = (coord_x - xworld_min) * map_expand
+    grid_y = (coord_y - yworld_min) * map_expand
+    return np.array([grid_x, grid_y], dtype=int)
+
+def get_pos_from_worldgrid(worldgrid, map_width, map_expand):
+    grid_x, grid_y = worldgrid
+    return grid_x + grid_y * map_width * map_expand
+
+def get_pos_from_worldcoord(world_coord, xworld_min, yworld_min, map_width, map_expand):
+    grid = get_worldgrid_from_worldcoord(world_coord,xworld_min, yworld_min,map_expand)
+    return get_pos_from_worldgrid(grid, map_width, map_expand)
+
+def get_worldgrid_from_pos(pos, map_width, map_expand):
+    grid_x = pos % (map_width * map_expand)
+    grid_y = pos // (map_width * map_expand)
+    return np.array([grid_x, grid_y], dtype=int)
+
+def get_worldcoord_from_worldgrid(worldgrid, xworld_min, yworld_min, map_expand):
+    grid_x, grid_y = worldgrid
+    coord_x = grid_x / map_expand + xworld_min
+    coord_y = grid_y / map_expand + yworld_min
+    return np.array([coord_x, coord_y])
+
+def get_worldcoord_from_pos(pos, xworld_min, yworld_min, map_width, map_expand):
+    grid = get_worldgrid_from_pos(pos, map_width, map_expand)
+    return get_worldcoord_from_worldgrid(grid, xworld_min, yworld_min, map_expand)
+
+def get_camera_numbers(base_path):
+    camera_folders = [folder for folder in os.listdir(base_path) 
+                      if os.path.isdir(os.path.join(base_path, folder)) and "camera" in folder]
+    camera_numbers = [int(re.search(r'\d+', folder).group()) for folder in camera_folders]
+    return sorted(camera_numbers)
 
 
 def main():
@@ -132,4 +166,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
