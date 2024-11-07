@@ -55,33 +55,6 @@ def create_annotation_positions(scene_path, camera_numbers, ground_gt_path, outp
 
     print(f"Annotation files created for frames in {output_dir}.")
 
-
-# def downsample_ground_truth(ground_gt_path, output_gt_path, original_fps=30, target_fps=2):
-#     downsample_interval = original_fps // target_fps
-
-#     with open(ground_gt_path, 'r') as f:
-#         lines = f.readlines()
-
-#     downsampled_lines = []
-#     new_frame_id = 1
-#     last_original_frame_id = 2
-
-#     lines.sort(key=lambda line: int(float(line.strip().split(' ')[2])))
-#     for line in lines:
-#         fields = line.strip().split(' ')
-#         original_frame_id = int(float(fields[2])) 
-#         if (original_frame_id - 2) % downsample_interval == 0:
-#             if original_frame_id != last_original_frame_id:
-#                 last_original_frame_id = original_frame_id
-#                 fields[2] = str(new_frame_id)
-#                 new_frame_id += 1
-#             else:
-#                 fields[2] = str(new_frame_id)
-#             downsampled_lines.append(" ".join(fields) + "\n")
-#     with open(output_gt_path, 'w') as f_out:
-#         f_out.writelines(downsampled_lines)
-#     print(f"Downsampled Ground Truth saved to {output_gt_path}")
-
 def downsample_ground_truth(ground_gt_path, output_gt_path, original_fps=30, target_fps=2):
     downsample_interval = original_fps // target_fps
 
