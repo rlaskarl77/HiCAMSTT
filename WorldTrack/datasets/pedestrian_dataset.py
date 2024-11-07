@@ -51,10 +51,6 @@ class PedestrianDataset(VisionDataset):
 
         if self.is_train:
             frame_range = range(0, int(self.num_frame * 0.9))
-            # frame_range = list(range(0, 378)) + list(range(582, 872)) # hdc
-        elif not inference:
-            frame_range = range(int(self.num_frame * 0.9), self.num_frame)
-            # frame_range = range(1486, 1756)
         else:
             frame_range = range(int(self.num_frame * 0.9), self.num_frame)
 
@@ -111,6 +107,7 @@ class PedestrianDataset(VisionDataset):
                     all_pedestrians = json.load(json_file)
                 world_pts, world_pids = [], []
                 img_bboxs, img_pids = [[] for _ in range(self.num_cam)], [[] for _ in range(self.num_cam)]
+
                 for pedestrian in all_pedestrians:
                     grid_x, grid_y = self.base.get_worldgrid_from_pos(pedestrian['positionID']).squeeze()
                     if pedestrian['personID'] not in self.pid_dict:
@@ -130,10 +127,6 @@ class PedestrianDataset(VisionDataset):
                 self.imgs_gt[frame] = {}
                 for cam in range(self.num_cam):
                     # x1y1x2y2
-                    if not img_bboxs[cam]: 
-                        img_bboxs[cam].append([-1, -1, -1, -1])
-                        img_pids[cam].append(-1)
-
                     self.imgs_gt[frame][cam] = (torch.tensor(img_bboxs[cam]), torch.tensor(img_pids[cam]))
                     
         print(f'Number of frames: {num_frame}, Number of world bounding boxes: {num_world_bbox}, '
@@ -177,9 +170,6 @@ class PedestrianDataset(VisionDataset):
         size = torch.zeros((2, H, W), dtype=torch.float32)
         valid_mask = torch.zeros((1, H, W), dtype=torch.bool)
         person_ids = torch.full((1, H, W), -1, dtype=torch.int32)
-
-        if img_pids[0] == -1:
-            return center, offset, size, person_ids, valid_mask
 
         xmin = (img_pts[:, 0] * sx - crop[0]) / self.img_downsample
         ymin = (img_pts[:, 1] * sy - crop[1]) / self.img_downsample
