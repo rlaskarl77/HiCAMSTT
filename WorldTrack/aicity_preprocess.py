@@ -63,23 +63,15 @@ def downsample_ground_truth(ground_gt_path, output_gt_path, original_fps=30, tar
 
     downsampled_lines = []
     new_frame_id = 1
-    first_original_frame_id = None
-    last_original_frame_id = None
     lines.sort(key=lambda line: int(float(line.strip().split(' ')[2])))
-    
     for line in lines:
         fields = line.strip().split(' ')
         original_frame_id = int(float(fields[2])) 
-
         if (original_frame_id - 2) % downsample_interval == 0:
-            if first_original_frame_id is None:
-                first_original_frame_id = original_frame_id  
-            last_original_frame_id = original_frame_id      
-            
-            fields[2] = str(new_frame_id)
+            fields[2] = str(int((original_frame_id-2)/downsample_interval)+1)
             downsampled_lines.append(" ".join(fields) + "\n")
-            new_frame_id += 1
 
+    downsampled_lines = sorted(downsampled_lines, key=lambda line: int(line.split()[0]))   
     if first_original_frame_id == 2 and last_original_frame_id == 23987:
         print("First and last frame IDs match expected values: 2 and 23987.")
     else:
