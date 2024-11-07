@@ -44,7 +44,7 @@ class PedestrianDataModule(pl.LightningDataModule):
             base = Wildtrack(self.data_dir)
         elif 'multiviewx' in self.dataset.lower():
             base = MultiviewX(self.data_dir)
-        elif "scene_001" in self.dataset.lower():
+        elif "scene" in self.dataset.lower():
             base = AiCity(self.data_dir)
         elif '20240110'or '20240415' or '20240702' in self.dataset.lower():
             base = HDC(self.data_dir)

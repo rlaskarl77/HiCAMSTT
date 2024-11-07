@@ -1,15 +1,14 @@
 data:
   class_path: datasets.PedestrianDataModule
   init_args:
-    data_dir: "/131_data/datasets/aicity/scene_001"
-    # data_dir: "/data/aicity/scene_001"  
+    data_dir: "/131_data/datasets/aicity/train/scene_001"
     batch_size: 2
 model:
-  resolution: [350, 2, 500]  
+  resolution: [350, 2, 200]  
   bounds: [0, 800, 0, 1400, 0, 2]
-  depth: [32, 250, 3250]  
+  depth: [32, 250, 3250]
   z_sign: 1
   num_cameras: 10
   use_temporal_cache: True
 trainer:
-  max_epochs: 30
+  max_epochs: 50
