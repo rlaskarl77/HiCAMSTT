@@ -86,3 +86,29 @@ gs/m_mvdet.yml     -c configs/hyp/h_baseline.yml     -c configs/hyp/h_test_save_
 er.save_dir '/131_data/namgi/logs/MCMOT'     --trainer.logger.version 'test/wildtrack/mvdet/baseline_tracking'     --ckpt '/131_data/namgi/logs/MCMOT/
 lightning_logs/train/wildtrack/mvdet/baseline/checkpoints/model-epoch=29-val_loss=10.49-val_center=5.28.ckpt'     > logs/cvpr2025/test_wildtrack_basel
 ine.log 2>&1
+
+/home/TrackTacular/experiments/lightning_logs/train/wildtrack/mvdet/baseline/checkpoints/model-epoch=29-val_loss=10.49-val_center=5.28.ckpt
+
+CUDA_VISIBLE_DEVICES=0 python -u train_con.py test \
+    -c configs/d_wildtrack_server.yml \
+    -c configs/m_mvdet.yml \
+    -c configs/hyp/h_baseline.yml \
+    -c configs/hyp/h_test_save_features.yml \
+    --trainer.logger TensorBoardLogger \
+    --trainer.logger.save_dir '/131_data/namgi/logs/MCMOT' \
+    --trainer.logger.version 'test/wildtrack/mvdet/baseline_tsne' \
+    --ckpt '/home/TrackTacular/experiments/lightning_logs/train/wildtrack/mvdet/baseline/checkpoints/model-epoch=29-val_loss=10.49-val_center=5.28.ckpt' \
+    > logs/cvpr2025/test_wildtrack_mvdet_baseline_tsne.log 2>&1
+
+/home/TrackTacular/experiments/lightning_logs/train/wildtrack/mvdet/simclr@t0.03_pseudolabel_softmask_80e/checkpoints/model-epoch=47-val_loss=12.90-val_center=5.12.ckpt
+
+CUDA_VISIBLE_DEVICES=0 python -u train_con.py test \
+    -c configs/d_wildtrack_server_80e.yml \
+    -c configs/m_mvdet.yml \
+    -c configs/hyp/h_simclr@t0.03_pseudolabel_softmask.yml \
+    -c configs/hyp/h_test_save_features.yml \
+    --trainer.logger TensorBoardLogger \
+    --trainer.logger.save_dir '/131_data/namgi/logs/MCMOT' \
+    --trainer.logger.version 'test/wildtrack/mvdet/simclr@t0.03_pseudolabel_softmask_80e_tsne' \
+    --ckpt '/home/TrackTacular/experiments/lightning_logs/train/wildtrack/mvdet/simclr@t0.03_pseudolabel_softmask_80e/checkpoints/model-epoch=47-val_loss=12.90-val_center=5.12.ckpt' \
+    > logs/cvpr2025/test_wildtrack_mvdet_simclr@t0.03_pseudolabel_softmask_80e_tsne.log 2>&1

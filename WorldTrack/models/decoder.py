@@ -193,6 +193,10 @@ class Decoder(nn.Module):
             
             if self.learn_pose:
                 out_bev['instance_pose'] = self.bev_heads['pose'](pose_feat)
+        
+        else:
+            out_bev['instance_id_feat'] = x
+            out_bev['instance_pose'] = x
 
         return {**out_bev, **out_img}
     

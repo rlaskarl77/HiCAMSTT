@@ -975,10 +975,10 @@ class WorldTrackModel(pl.LightningModule):
                 
                 self.visualize_tsne(tsne_results, random_pids, index=i)
                 
-            # tsne = TSNE(n_components=2, random_state=42, perplexity=5)
-            # tsne_results = tsne.fit_transform(features)
+            tsne = TSNE(n_components=2, random_state=42)
+            tsne_results = tsne.fit_transform(features)
             
-            # self.visualize_tsne(tsne_results, pids)
+            self.visualize_tsne(tsne_results, pids, 'all')
             
             if self.learn_cont_pose:
                 pose_dir = osp.join(log_dir, 'pose')
