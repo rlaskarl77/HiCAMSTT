@@ -127,6 +127,10 @@ class PedestrianDataset(VisionDataset):
                 self.imgs_gt[frame] = {}
                 for cam in range(self.num_cam):
                     # x1y1x2y2
+                    if not img_bboxs[cam]: 
+                        img_bboxs[cam].append([-1, -1, -1, -1])
+                        img_pids[cam].append(-1)
+
                     self.imgs_gt[frame][cam] = (torch.tensor(img_bboxs[cam]), torch.tensor(img_pids[cam]))
                     
         print(f'Number of frames: {num_frame}, Number of world bounding boxes: {num_world_bbox}, '
@@ -170,6 +174,9 @@ class PedestrianDataset(VisionDataset):
         size = torch.zeros((2, H, W), dtype=torch.float32)
         valid_mask = torch.zeros((1, H, W), dtype=torch.bool)
         person_ids = torch.full((1, H, W), -1, dtype=torch.int32)
+
+        if img_pids[0] == -1:
+            return center, offset, size, person_ids, valid_mask
 
         xmin = (img_pts[:, 0] * sx - crop[0]) / self.img_downsample
         ymin = (img_pts[:, 1] * sy - crop[1]) / self.img_downsample
