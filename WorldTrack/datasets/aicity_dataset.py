@@ -24,17 +24,17 @@ class AiCity(VisionDataset):
             *[self.get_intrinsic_extrinsic_matrix(cam) for cam in range(self.num_cam)])
 
     def get_camera_numbers(self):
-        camera_folders = [folder for folder in sorted(os.listdir(os.path.join(self.root, 'Image_subsets_fps2')))]
+        camera_folders = [folder for folder in sorted(os.listdir(os.path.join(self.root, 'Image_subsets')))]
         camera_numbers = [int(re.search(r'\d+', folder).group()) for folder in camera_folders]
         return sorted(camera_numbers)
 
     def get_image_fpaths(self, frame_range):
         img_fpaths = {cam: {} for cam in range(self.num_cam)}
-        for camera_folder in sorted(os.listdir(os.path.join(self.root, 'Image_subsets_fps2'))):
+        for camera_folder in sorted(os.listdir(os.path.join(self.root, 'Image_subsets'))):
             cam = self.camera_numbers.index(int(camera_folder.split('_')[-1]))
             if cam >= self.num_cam:
                 continue
-            for fname in sorted(os.listdir(os.path.join(self.root, 'Image_subsets_fps2', camera_folder))):
+            for fname in sorted(os.listdir(os.path.join(self.root, 'Image_subsets', camera_folder))):
                 frame = int(fname.split('.')[0])
                 if frame in frame_range:
                     img_fpaths[cam][frame] = os.path.join(self.root, 'Image_subsets_fps2', camera_folder, fname)
