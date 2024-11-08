@@ -37,7 +37,7 @@ class AiCity(VisionDataset):
             for fname in sorted(os.listdir(os.path.join(self.root, 'Image_subsets', camera_folder))):
                 frame = int(fname.split('.')[0])
                 if frame in frame_range:
-                    img_fpaths[cam][frame] = os.path.join(self.root, 'Image_subsets_fps2', camera_folder, fname)
+                    img_fpaths[cam][frame] = os.path.join(self.root, 'Image_subsets', camera_folder, fname)
         return img_fpaths
 
     def get_worldgrid_from_pos(self, pos):
