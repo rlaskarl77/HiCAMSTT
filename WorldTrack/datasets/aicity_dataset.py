@@ -4,14 +4,15 @@ import json
 from torchvision.datasets import VisionDataset
 import cv2
 import re
-
+from utils import geom
+import torch
 class AiCity(VisionDataset):
     def __init__(self, root, num_cam=10):
         super().__init__(root)
         self.__name__ = 'AiCity'
         self.img_shape, self.worldgrid_shape = [1080, 1920], [1400, 800] 
         self.camera_numbers = self.get_camera_numbers()
-        self.num_cam, self.num_frame = len(self.camera_numbers), 1600
+        self.num_cam, self.num_frame = num_cam, 1600
         self.frame_step = 1
 
         self.worldcoord_from_worldgrid_mat = np.array([
@@ -61,6 +62,10 @@ class AiCity(VisionDataset):
         K, R = self.rq(P[:3, :3])
         K = K / K[2,2]
         t = -np.linalg.inv(P[:3, :3]) @ P[:3, 3]
+        if np.dot(R[:, 2], [0, 0, 1]) < 0:  
+            R = -R
+            K[2, 2] *= -1  
+
         return K, R, t
 
     def get_intrinsic_extrinsic_matrix(self, camera_i):
