@@ -10,6 +10,7 @@ from PIL import Image, ImageDraw
 import numpy as np
 import kornia
 import cv2
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from sklearn.manifold import TSNE
 
 from models import Segnet, MVDet, Liftnet, Bevformernet, MVDetr
@@ -64,6 +65,8 @@ class WorldTrackModel(pl.LightningModule):
             # test mode
             test_dataset_dir: str=None,
             test_mode: str='tracking',
+            # DDP setting for CL
+            ddp_contrastive=False,
     ):
         super().__init__()
         self.model_name = model_name
@@ -206,6 +209,9 @@ class WorldTrackModel(pl.LightningModule):
         
         else:
             raise ValueError(f'Unknown test mode {self.test_mode}')
+        
+        # ETC
+        self.ddp_contrastive = ddp_contrastive
 
 
     def configure_optimizers(self):
@@ -458,11 +464,34 @@ class WorldTrackModel(pl.LightningModule):
     
     def loss_reid(self, target, output):
         
-        # info-nce loss
-        bev_feat = output['instance_id_feat']        
-        # get bev features with pid
-        id_feat, pid, pid_counts = self.get_feature_vec_with_pid(bev_feat, target['pid_bev'])
-        id_feat = F.normalize(id_feat, dim=1)
+        if self.ddp_contrastive:
+            bev_feat = output['instance_id_feat']
+            target_pid = target['pid_bev']
+            all_bev_feat = self.all_gather(bev_feat, sync_grads=True) # G, B, C, H, W
+            all_target_pid = self.all_gather(target_pid, sync_grads=False), # G, B, 1, H, W
+            # print(all_bev_feat.shape)
+            # print(type(all_bev_feat))
+            # print(len(all_bev_feat))
+            # print(type(all_bev_feat[0]))
+            # print(all_bev_feat[0].shape)
+            # print(type(all_target_pid))
+            # print(len(all_target_pid))
+            # print(type(all_target_pid[0]))
+            # print(all_target_pid[0].shape)
+            # reshape to G*B, C, H, W
+            bev_feat = all_bev_feat.reshape(-1, *all_bev_feat.shape[2:]).contiguous()
+            target_pid = torch.cat(all_target_pid, dim=0).reshape(-1, 1, *all_bev_feat.shape[3:]).contiguous()
+            
+            id_feat, pid, pid_counts = self.get_feature_vec_with_pid(bev_feat, target_pid)
+            id_feat = F.normalize(id_feat, dim=1)
+        
+        else:
+        
+            # info-nce loss
+            bev_feat = output['instance_id_feat']        
+            # get bev features with pid
+            id_feat, pid, pid_counts = self.get_feature_vec_with_pid(bev_feat, target['pid_bev'])
+            id_feat = F.normalize(id_feat, dim=1)
         
         if self.cont_type == 'simclr':
             sim_matrix = torch.matmul(id_feat, id_feat.t())
@@ -821,6 +850,7 @@ class WorldTrackModel(pl.LightningModule):
             pid_bev = target['pid_bev']
             
             feat, pid, counts = self.get_feature_vec_with_pid(feat_bev, pid_bev)
+            feat = F.normalize(feat, dim=1) # normalize features
             
             for i, frame in enumerate(item['frame']):
                 pid_i = pid[sum(counts[:i]):sum(counts[:i+1])]
@@ -948,57 +978,52 @@ class WorldTrackModel(pl.LightningModule):
             features = []
             pids = []
             
-            for file in os.listdir(feat_dir):
-                if file.endswith('.npy'):
-                    pid = int(file.split('_')[0])
-                    feat = np.load(osp.join(feat_dir, file))
+            def load_feature(file, feat_dir):
+                pid = int(file.split('_')[0])
+                feat = np.load(osp.join(feat_dir, file))
+                return feat, pid
+            
+            files = [file for file in os.listdir(feat_dir) if file.endswith('.npy')]
+            
+            with ThreadPoolExecutor() as executor:
+                futures = [executor.submit(load_feature, file, feat_dir) for file in files]
+                for future in as_completed(futures):
+                    feat, pid = future.result()
                     features.append(feat)
                     pids.append(pid)
             
             features = np.array(features)
             pids = np.array(pids)
             
-            MAX_TRYOUT = 5
-            NUM_CHOICE = 10
+            features = F.normalize(torch.from_numpy(features), dim=1).numpy()
             
-            for i in range(MAX_TRYOUT):
-                # choice random pid and their indexes for features and pids
-                random_pid_list = np.random.choice(np.unique(pids), NUM_CHOICE, replace=False)
-                random_indexes = []
-                for pid in random_pid_list:
-                    random_indexes.extend(np.where(pids == pid)[0].tolist())
-                random_features = features[random_indexes]
-                random_pids = pids[random_indexes]
+            PERPLEXITY_LIST = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100]
                 
-                tsne = TSNE(n_components=2, random_state=42)
-                tsne_results = tsne.fit_transform(random_features)
+            for p in PERPLEXITY_LIST:
+                tsne = TSNE(n_components=2, random_state=42, perplexity=p)
+                tsne_results = tsne.fit_transform(features)
                 
-                self.visualize_tsne(tsne_results, random_pids, index=i)
-                
-            tsne = TSNE(n_components=2, random_state=42)
-            tsne_results = tsne.fit_transform(features)
+                self.visualize_tsne(tsne_results, pids, tag=f'perplexity@{p}')
             
-            self.visualize_tsne(tsne_results, pids, 'all')
-            
-            if self.learn_cont_pose:
-                pose_dir = osp.join(log_dir, 'pose')
-                poses = []
-                velocities = []
-                for file in os.listdir(pose_dir):
-                    if file.endswith('.npy'):
-                        pose = np.load(osp.join(pose_dir, file))
-                        # Assuming filename format is 'u_v_frame.npy'
-                        velocity = tuple(map(float, file.split('_')[0:2]))  
-                        poses.append(pose)
-                        velocities.append(velocity)
+            # if self.learn_cont_pose:
+            #     pose_dir = osp.join(log_dir, 'pose')
+            #     poses = []
+            #     velocities = []
+            #     for file in os.listdir(pose_dir):
+            #         if file.endswith('.npy'):
+            #             pose = np.load(osp.join(pose_dir, file))
+            #             # Assuming filename format is 'u_v_frame.npy'
+            #             velocity = tuple(map(float, file.split('_')[0:2]))  
+            #             poses.append(pose)
+            #             velocities.append(velocity)
                 
-                poses = np.array(poses)
-                velocities = np.array(velocities)
+            #     poses = np.array(poses)
+            #     velocities = np.array(velocities)
                 
-                tsne = TSNE(n_components=2, random_state=42)
-                tsne_pose_results = tsne.fit_transform(poses)
+            #     tsne = TSNE(n_components=2, random_state=42)
+            #     tsne_pose_results = tsne.fit_transform(poses)
                 
-                self.visualize_tsne_pose(tsne_pose_results, velocities)
+            #     self.visualize_tsne_pose(tsne_pose_results, velocities)
 
 
     def plot_data(self, target, output, batch_idx=0):
@@ -1175,7 +1200,7 @@ class WorldTrackModel(pl.LightningModule):
         writer.add_figure(f'predict/{batch_idx}', fig, global_step=self.global_step)
         
 
-    def visualize_tsne(self, tsne_results, pids, index=0):
+    def visualize_tsne(self, tsne_results, pids, tag=''):
         
         writer = self.logger.experiment
         
@@ -1191,8 +1216,10 @@ class WorldTrackModel(pl.LightningModule):
         # plt.xlabel('t-SNE 1')
         # plt.ylabel('t-SNE 2')
         
-        writer.add_figure(f'tsne visualization of identity features {index}', 
+        writer.add_figure(f'tsne visualization reid features, {tag}', 
                           plt.gcf(), global_step=self.global_step)
+        
+        figure_name = f'tsne_{tag}.png'
         
 
     def visualize_tsne_pose(self, tsne_pose_results, velocities):

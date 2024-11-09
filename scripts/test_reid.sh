@@ -112,3 +112,55 @@ CUDA_VISIBLE_DEVICES=0 python -u train_con.py test \
     --trainer.logger.version 'test/wildtrack/mvdet/simclr@t0.03_pseudolabel_softmask_80e_tsne' \
     --ckpt '/home/TrackTacular/experiments/lightning_logs/train/wildtrack/mvdet/simclr@t0.03_pseudolabel_softmask_80e/checkpoints/model-epoch=47-val_loss=12.90-val_center=5.12.ckpt' \
     > logs/cvpr2025/test_wildtrack_mvdet_simclr@t0.03_pseudolabel_softmask_80e_tsne.log 2>&1
+
+/home/TrackTacular/experiments/lightning_logs/train/wildtrack/mvdet/simclr@t0.03_pseudolabel_softmask_80e_batch8/checkpoints/model-epoch=70-val_loss=15.19-val_center=5.08.ckpt
+
+CUDA_VISIBLE_DEVICES=0 python -u train_con.py test \
+    -c configs/d_wildtrack_server_80e.yml \
+    -c configs/m_mvdet.yml \
+    -c configs/hyp/h_simclr@t0.03_pseudolabel_softmask.yml \
+    -c configs/hyp/h_test_save_features.yml \
+    --trainer.logger TensorBoardLogger \
+    --trainer.logger.save_dir '/131_data/namgi/logs/MCMOT' \
+    --trainer.logger.version 'test/wildtrack/mvdet/simclr@t0.03_pseudolabel_softmask_80e_batch8_tsne' \
+    --ckpt '/home/TrackTacular/experiments/lightning_logs/train/wildtrack/mvdet/simclr@t0.03_pseudolabel_softmask_80e_batch8/checkpoints/model-epoch=70-val_loss=15.19-val_center=5.08.ckpt' \
+    > logs/cvpr2025/test_wildtrack_mvdet_simclr@t0.03_pseudolabel_softmask_80e_batch8_tsne.log 2>&1
+
+/home/TrackTacular/experiments/lightning_logs/train/multiviewx/mvdet/simclr@t0.03_pseudolabel_softmask/checkpoints/model-epoch=29-val_loss=12.23-val_center=2.35.ckpt
+
+CUDA_VISIBLE_DEVICES=0 python -u train_con.py test \
+    -c configs/d_multiviewx_server.yml \
+    -c configs/m_mvdet.yml \
+    -c configs/hyp/h_simclr@t0.03_pseudolabel_softmask.yml \
+    -c configs/hyp/h_test_save_features.yml \
+    --trainer.logger TensorBoardLogger \
+    --trainer.logger.save_dir '/131_data/namgi/logs/MCMOT' \
+    --trainer.logger.version 'test/multiviewx/mvdet/simclr@t0.03_pseudolabel_softmask_tsne' \
+    --ckpt '/home/TrackTacular/experiments/lightning_logs/train/multiviewx/mvdet/simclr@t0.03_pseudolabel_softmask/checkpoints/model-epoch=29-val_loss=12.23-val_center=2.35.ckpt' \
+    > logs/cvpr2025/test_multiviewx_mvdet_simclr@t0.03_pseudolabel_softmask_tsne.log 2>&1
+
+/home/TrackTacular/experiments/lightning_logs/train/multiviewx/mvdet/simclr@t0.03_pseudolabel_softmask/checkpoints/model-epoch=29-val_loss=12.23-val_center=2.35.ckpt
+
+CUDA_VISIBLE_DEVICES=0 python -u train_con.py test \
+    -c configs/d_multiviewx_server.yml \
+    -c configs/m_mvdet.yml \
+    -c configs/hyp/h_simclr@t0.03_pseudolabel_softmask.yml \
+    -c configs/hyp/h_test_save_features.yml \
+    --trainer.logger TensorBoardLogger \
+    --trainer.logger.save_dir '/131_data/namgi/logs/MCMOT' \
+    --trainer.logger.version 'test/multiviewx/mvdet/simclr@t0.03_pseudolabel_softmask_120e_batch8_tsne' \
+    --ckpt '/home/TrackTacular/experiments/lightning_logs/train/multiviewx/mvdet/simclr@t0.03_pseudolabel_softmask_120e_batch8/checkpoints/model-epoch=113-val_loss=10.40-val_center=1.90.ckpt' \
+    > logs/cvpr2025/test_multiviewx_mvdet_simclr@t0.03_pseudolabel_softmask_120e_batch8_tsne.log 2>&1
+
+/home/TrackTacular/experiments/lightning_logs/train/wildtrack/mvdet/simclr@t0.03_pseudolabel_softmask_120e_batch4x8/checkpoints/model-epoch=98-val_loss=15.63-val_center=4.96.
+
+CUDA_VISIBLE_DEVICES=0 python -u train_con.py test \
+    -c configs/d_wildtrack_server.yml \
+    -c configs/m_mvdet.yml \
+    -c configs/hyp/h_simclr@t0.03_pseudolabel_softmask.yml \
+    -c configs/hyp/h_test_save_features.yml \
+    --trainer.logger TensorBoardLogger \
+    --trainer.logger.save_dir '/131_data/namgi/logs/MCMOT' \
+    --trainer.logger.version 'test/multiviewx/mvdet/simclr@t0.03_pseudolabel_softmask_120e_batch8_tsne' \
+    --ckpt '/home/TrackTacular/experiments/lightning_logs/train/wildtrack/mvdet/simclr@t0.03_pseudolabel_softmask_120e_batch4x8/checkpoints/model-epoch=98-val_loss=15.63-val_center=4.96.' \
+    > logs/cvpr2025/test_wildtrack_mvdet_simclr@t0.03_pseudolabel_softmask_120e_batch4x8_tsne.log 2>&1
