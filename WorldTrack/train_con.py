@@ -234,7 +234,8 @@ class WorldTrackModel(pl.LightningModule):
         ref_T_global: (B,4,4)
         vox_util: vox util object
         """
-        prev_bev = self.load_cache(item['frame'].cpu(), prev=True)
+        prev_bev = self.load_cache(item['frame'].cpu(), prev=True) \
+            if self.use_temporal_cache else None
 
         output = self.model(
             rgb_cams=item['img'],
@@ -375,17 +376,6 @@ class WorldTrackModel(pl.LightningModule):
             offset_e[:, 2:], offset_g[:, 2:], reduction='none').sum(dim=1, keepdim=True)
         tracking_loss = basic.reduce_masked_mean(tracking_loss, valid_g)
         
-
-        if 'size_bev' in target:
-            size_g = target['size_bev']
-            rotbin_g = target['rotbin_bev']
-            rotres_g = target['rotres_bev']
-            size_loss = torch.abs(size_e - size_g).sum(dim=1, keepdim=True)
-            size_loss = basic.reduce_masked_mean(size_loss, valid_g)
-            rot_loss = compute_rot_loss(rot_e, rotbin_g, rotres_g, valid_g)
-        else:
-            size_loss = torch.tensor(0.)
-            rot_loss = torch.tensor(0.)
             
         if self.learn_reid:
             reid_loss = self.loss_reid(target, output)
@@ -401,14 +391,6 @@ class WorldTrackModel(pl.LightningModule):
         offset_factor = 1 / torch.exp(self.model.offset_weight)
         offset_loss_weight = offset_factor * offset_loss
         offset_uncertainty_loss = self.model.offset_weight
-
-        size_factor = 1 / torch.exp(self.model.size_weight)
-        size_loss_weight = size_factor * size_loss
-        size_uncertainty_loss = self.model.size_weight
-
-        rot_factor = 1 / torch.exp(self.model.rot_weight)
-        rot_loss_weight = rot_factor * rot_loss
-        rot_uncertainty_loss = self.model.rot_weight
 
         tracking_factor = 1 / torch.exp(self.model.tracking_weight)
         tracking_loss_weight = tracking_factor * tracking_loss
@@ -429,8 +411,6 @@ class WorldTrackModel(pl.LightningModule):
             'center_loss': 10 * center_loss,
             'offset_loss': 10 * offset_loss,
             'tracking_loss': tracking_loss,
-            'size_loss': size_loss,
-            'rot_loss': rot_loss,
             'center_img': center_img_loss,
             
             'reid_loss': reid_loss,
@@ -440,8 +420,6 @@ class WorldTrackModel(pl.LightningModule):
             'center_loss': 10 * center_loss_weight,
             'offset_loss': 10 * offset_loss_weight,
             'tracking_loss': tracking_loss_weight,
-            'size_loss': size_loss_weight,
-            'rot_loss': rot_loss_weight,
             'center_img': center_img_loss,
             
             'reid_loss': reid_loss_weight,
@@ -451,8 +429,6 @@ class WorldTrackModel(pl.LightningModule):
             'center_uncertainty_loss': center_uncertainty_loss,
             'offset_uncertainty_loss': offset_uncertainty_loss,
             'tracking_uncertainty_loss': tracking_uncertainty_loss,
-            'size_uncertainty_loss': size_uncertainty_loss,
-            'rot_uncertainty_loss': rot_uncertainty_loss,
             
             'reid_uncertainty_loss': reid_uncertainty_loss,
             'pose_uncertainty_loss': pose_uncertainty_loss,
@@ -1218,8 +1194,6 @@ class WorldTrackModel(pl.LightningModule):
         
         writer.add_figure(f'tsne visualization reid features, {tag}', 
                           plt.gcf(), global_step=self.global_step)
-        
-        figure_name = f'tsne_{tag}.png'
         
 
     def visualize_tsne_pose(self, tsne_pose_results, velocities):

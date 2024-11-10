@@ -61,7 +61,8 @@ class PedestrianDataset(VisionDataset):
         self.pid_dict = {}
         self.download(frame_range)
         self.gt_fpath = os.path.join(self.root, 'gt.txt')
-        self.prepare_gt()
+        if not os.path.exists(self.gt_fpath):
+            self.prepare_gt()
         
 
         self.calibration = {}

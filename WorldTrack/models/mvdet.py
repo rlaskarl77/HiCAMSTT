@@ -73,8 +73,8 @@ class MVDet(nn.Module):
         self.center_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
         self.offset_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
         self.tracking_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
-        self.size_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
-        self.rot_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
+        # self.size_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
+        # self.rot_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
         
         self.reid_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
         self.pose_weight = nn.Parameter(torch.tensor(0.0), requires_grad=True)
