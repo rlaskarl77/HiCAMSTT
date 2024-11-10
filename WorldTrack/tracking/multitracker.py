@@ -102,8 +102,11 @@ class STrack(BaseTrack):
             for i, (mean, cov) in enumerate(zip(multi_mean, multi_covariance)):
                 stracks[i].mean = mean
                 stracks[i].covariance = cov
+                
+                stracks[i]._xy_prev = stracks[i]._xy
+                stracks[i]._xy = mean[:2]
 
-    def activate(self, kalman_filter, frame_id, old_method=False):
+    def activate(self, kalman_filter, frame_id):
         """Start a new tracklet"""
         self.kalman_filter = kalman_filter
         self.track_id = self.next_id()
@@ -111,14 +114,9 @@ class STrack(BaseTrack):
 
         self.tracklet_len = 0
         self.state = TrackState.Tracked
-        if old_method:
-            if frame_id == 1:
-                self.is_activated = True
-            # self.is_activated = True
-        else:
-            # if frame_id == 1:
-            #     self.is_activated = True
+        if frame_id == 1:
             self.is_activated = True
+            # self.is_activated = True
         self.frame_id = frame_id
         self.start_frame = frame_id
 
@@ -215,6 +213,7 @@ class JDETracker:
         activated_starcks = []
         refind_stracks = []
         lost_stracks = []
+        missed_stracks = []
         removed_stracks = []
 
         remain_inds = score > self.det_thresh - 0.1
@@ -237,15 +236,25 @@ class JDETracker:
         else:
             detections: List[STrack] = []
         
-        tracked_stracks: List[STrack] = self.tracked_stracks
+        unconfirmed: List[STrack] = []
+        tracked_stracks: List[STrack] = []
+        for track in self.tracked_stracks:
+            if not track.is_activated:
+                unconfirmed.append(track)
+            else:
+                tracked_stracks.append(track)
+        
+        strack_pool: List[STrack] = joint_stracks(tracked_stracks, self.lost_stracks)
+        STrack.multi_predict(strack_pool)
+        
 
         ''' Step 2:association'''
         '''
             Step 2.1: Backward prediction with activated tracks
             Step 2.2: Forward prediction with lost + unmatched tracks
         '''
-        
-        strack_pool_xy = [track.xy for track in tracked_stracks]
+        # backward prediction
+        strack_pool_xy = [track.xy_prev for track in tracked_stracks]
         detections_xy_prev = [det.xy_prev for det in detections]
 
         dists = matching.center_distance(strack_pool_xy, detections_xy_prev)
@@ -289,22 +298,69 @@ class JDETracker:
         
         for it in u_track:
             track = tracked_stracks[it]
-            lost_stracks.append(track)
+            missed_stracks.append(track)
         
-        # joint lost stracks as unconfirmed
-        unconfirmed = joint_stracks(lost_stracks, self.lost_stracks)
-        
-        # Predict the current location with KF
-        STrack.multi_predict(unconfirmed)
 
         '''
-            Deal with unconfirmed tracks, which are:
+            Deal with lost tracks, which are:
             (1) Misdetected tracks
             (2) Long-term lost tracks
             (3) Misdetections in current frame
         '''
+        # joint lost stracks as unconfirmed
+        re_stracks = joint_stracks(missed_stracks, self.lost_stracks)
+        
+        u_detections = [detections[i] for i in u_detection]
+        u_detections_xy = [det.xy for det in u_detections]
+        re_stracks_xy = [track.xy for track in re_stracks]
+        
+        dists = matching.center_distance(re_stracks_xy, u_detections_xy)
+        
+        if self.reid:
+            # calculate reid distance
+            reid_dists = matching.embedding_distance(re_stracks, u_detections) / 2.0
+            # normalize center distance
+            dists = np.clip(dists, a_min=0., a_max=self.max_spatial_dist2) / self.max_spatial_dist2
+            
+            if self.use_temporal_mixing:
+                strack_pool_t = [[track.frame_id] for track in tracked_stracks]
+                detections_t = [[self.frame_id-1] for det in detections]
+                temp_dist = matching.center_distance(strack_pool_t, detections_t)
+                temp_weight = 1 / (self.lambda_1 + np.exp(-1. * self.lambda_2 * temp_dist))
+                dists = (1 - temp_weight) * dists + temp_weight * reid_dists
+            
+            else:
+                dists = (1-self.dist_alpha) * dists + reid_dists * self.dist_alpha # 0.5 is the weight for reid distance
+            
+            matches, u_lost, u_detection = matching.linear_assignment(dists, thresh=self.lapjv_thresh2)
+        
+        else:
+            matches, u_lost, u_detection = matching.linear_assignment(dists, thresh=self.max_spatial_dist2)
+
+        for itracked, idet in matches:
+            track = re_stracks[itracked]
+            det = u_detections[idet]
+            if track.state == TrackState.Tracked:
+                if self.reid:
+                    track.update(det, self.frame_id, update_feature=True)
+                else:
+                    track.update(det, self.frame_id, update_feature=False)
+                activated_starcks.append(track)
+            else:
+                if self.reid:
+                    track.re_activate(det, self.frame_id, new_id=False, update_feature=True)
+                else:
+                    track.re_activate(det, self.frame_id, new_id=False, update_feature=False)
+                refind_stracks.append(track)
+                
+        for it in u_lost:
+            track = re_stracks[it]
+            if not track.state == TrackState.Lost:
+                track.mark_lost()
+                lost_stracks.append(track)
+
         detections = [detections[i] for i in u_detection]
-        detections_xy = [det.xy for det in detections]
+        detections_xy = [det.xy_prev for det in detections]
         unconfirmed_xy = [track.xy for track in unconfirmed]
         
         dists = matching.center_distance(unconfirmed_xy, detections_xy)
@@ -348,13 +404,11 @@ class JDETracker:
                     track.re_activate(det, self.frame_id, new_id=False, update_feature=False)
                 refind_stracks.append(track)
         
-        
         for it in u_unconfirmed:
             track = unconfirmed[it]
-            if not track.state == TrackState.Lost:
-                track.mark_lost()
-                lost_stracks.append(track)
-
+            track.mark_removed()
+            removed_stracks.append(track)
+        
         """ Step 3: Init new stracks"""
         for inew in u_detection:
             track = detections[inew]
@@ -588,7 +642,8 @@ def sub_stracks(tlista, tlistb):
 
 
 def remove_duplicate_stracks(stracksa, stracksb):
-    track_a = [t.xy_prev for t in stracksa]
+    # track_a = [t.xy_prev for t in stracksa]
+    track_a = [t.xy for t in stracksa]
     track_b = [t.xy for t in stracksb]
     pdist = matching.center_distance(track_a, track_b)
     pairs = np.where(pdist < 6)

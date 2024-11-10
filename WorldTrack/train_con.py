@@ -706,7 +706,8 @@ class WorldTrackModel(pl.LightningModule):
                         zip(item['sequence_num'], item['frame'], item['grid_gt'], ref_xy.cpu(), ref_xy_prev.cpu(),
                             scores_e.cpu(), reid_e.cpu())):
                     frame = int(frame.item())
-                    output_stracks = self.test_tracker.update_old(bev_det, bev_prev, score, reid)
+                    output_stracks = self.test_tracker.update(bev_det, bev_prev, score, reid)
+                    # output_stracks = self.test_tracker.update_old(bev_det, bev_prev, score, reid)
                     
                     mota_gt = [[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
                             for x, y, i in grid_gt[grid_gt.sum(1) != 0]]
@@ -730,8 +731,8 @@ class WorldTrackModel(pl.LightningModule):
                         zip(item['sequence_num'], item['frame'], item['grid_gt'], ref_xy.cpu(), ref_xy_prev.cpu(),
                             scores_e.cpu())):
                     frame = int(frame.item())
-                    # output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
-                    output_stracks = self.test_tracker.update_old(bev_det, bev_prev, score)
+                    output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
+                    # output_stracks = self.test_tracker.update_old(bev_det, bev_prev, score)
                     
                     mota_gt = [[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
                             for x, y, i in grid_gt[grid_gt.sum(1) != 0]]
@@ -868,7 +869,7 @@ class WorldTrackModel(pl.LightningModule):
                     1cm for aicity_lt, aicity
             '''
             unit = 2.5 if self.test_dataset == 'wildtrack' or self.test_dataset == 'multiviewx' \
-                else 1. if self.test_dataset == 'aicity_lt' or self.test_dataset == 'aicity' \
+                else 2.5 if self.test_dataset == 'aicity_lt' or self.test_dataset == 'aicity' \
                 else 1.
             # detection
             pred_path = osp.join(log_dir, 'moda_pred.txt')
@@ -887,7 +888,7 @@ class WorldTrackModel(pl.LightningModule):
                     1cm for aicity_lt, aicity
             '''
             scale = 0.025 if self.test_dataset == 'wildtrack' or self.test_dataset == 'multiviewx' \
-                else 0.01 if self.test_dataset == 'aicity_lt' or self.test_dataset == 'aicity' \
+                else 0.025 if self.test_dataset == 'aicity_lt' or self.test_dataset == 'aicity' \
                 else 1.
             pred_path = osp.join(log_dir, 'mota_pred.txt')
             gt_path = osp.join(log_dir, 'mota_gt.txt')
