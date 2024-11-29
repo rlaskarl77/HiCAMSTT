@@ -3,7 +3,7 @@ import numpy as np
 from evaluation.CLEAR_MOD_HUN import CLEAR_MOD_HUN
 
 
-def modMetricsCalculator(res_fpath, gt_fpath, unit=2.5):
+def modMetricsCalculator(res_fpath, gt_fpath, unit=2.5, threshold=50):
     """
     This is simply the python translation of a MATLAB_Evaluation tool
     used to evaluate detection result created by P. Dollar.
@@ -72,5 +72,5 @@ def modMetricsCalculator(res_fpath, gt_fpath, unit=2.5):
         else:
             detAllMatrix = np.concatenate((detAllMatrix, tmp_arr), axis=0)
         frame_ctr += 1
-    recall, precision, MODA, MODP = CLEAR_MOD_HUN(gtAllMatrix, detAllMatrix, du=unit)
+    recall, precision, MODA, MODP = CLEAR_MOD_HUN(gtAllMatrix, detAllMatrix, du=unit, threshold=threshold)
     return recall, precision, MODA, MODP

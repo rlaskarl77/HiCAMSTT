@@ -60,8 +60,8 @@ class Decoder(nn.Module):
         bev_head_config = {
             'center': n_classes,
             'offset': 4,
-            'size': 3,
-            'rot': 8,
+            # 'size': 3,
+            # 'rot': 8,
             # 'id_feat': self.reid_feat,
         }
         for name, out_channels in bev_head_config.items():

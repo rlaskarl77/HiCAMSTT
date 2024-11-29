@@ -35,7 +35,7 @@ def get_alpha(rot):
     return alpha1 * idx + alpha2 * (1 - idx)
 
 
-def decoder(center_e, offset_e, size_e, rz_e=None, K=60):
+def decoder(center_e, offset_e, size_e=None, rz_e=None, K=60):
     """
     center_e: B,1,H,W
     offset_e: B,2,H,W
@@ -56,7 +56,10 @@ def decoder(center_e, offset_e, size_e, rz_e=None, K=60):
     clses = (topk_ind / K).int()
 
     offset = _transpose_and_gather_feat(offset_e, topk_ind)  # B,K,2
-    size = _transpose_and_gather_feat(size_e, topk_ind)  # B,K,3
+    if size_e is not None:
+        size = _transpose_and_gather_feat(size_e, topk_ind)  # B,K,3
+    else:
+        size = torch.zeros_like(scores)
     if rz_e is not None:
         rz = _transpose_and_gather_feat(rz_e, topk_ind)
         rz = torch.stack([get_alpha(r) for r in rz])
@@ -77,7 +80,7 @@ def decoder(center_e, offset_e, size_e, rz_e=None, K=60):
     return xy.detach(), xy_prev.detach(), scores.detach(), clses.detach(), size.detach(), rz.detach()
 
 
-def decoder_reid(center_e, offset_e, size_e, rz_e=None, reid_e=None, K=60):
+def decoder_reid(center_e, offset_e, size_e=None, rz_e=None, reid_e=None, K=60):
     """
     center_e: B,1,H,W
     offset_e: B,2,H,W
@@ -98,7 +101,10 @@ def decoder_reid(center_e, offset_e, size_e, rz_e=None, reid_e=None, K=60):
     clses = (topk_ind / K).int()
 
     offset = _transpose_and_gather_feat(offset_e, topk_ind)  # B,K,2
-    size = _transpose_and_gather_feat(size_e, topk_ind)  # B,K,3
+    if size_e is not None:
+        size = _transpose_and_gather_feat(size_e, topk_ind)  # B,K,3
+    else:
+        size = torch.zeros_like(scores)
     if rz_e is not None:
         rz = _transpose_and_gather_feat(rz_e, topk_ind)
         rz = torch.stack([get_alpha(r) for r in rz])

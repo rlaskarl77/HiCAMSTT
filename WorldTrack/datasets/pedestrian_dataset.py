@@ -123,11 +123,18 @@ class PedestrianDataset(VisionDataset):
                                                   (pedestrian['views'][cam]))
                             img_pids[cam].append(pedestrian['personID'])
                             num_imgs_bbox += 1
-                self.world_gt[frame] = (torch.tensor(world_pts, dtype=torch.float32),
-                                        torch.tensor(world_pids, dtype=torch.float32))
+                world_pts_t = torch.tensor(world_pts, dtype=torch.float32)
+                world_pids_t = torch.tensor(world_pids, dtype=torch.float32)
+                if world_pts_t.shape[0] == 0:
+                    world_pts_t = torch.zeros((0, 2), dtype=torch.float32)
+                    world_pids_t = torch.zeros((0,), dtype=torch.float32)
+                self.world_gt[frame] = (world_pts_t, world_pids_t)
                 self.imgs_gt[frame] = {}
                 for cam in range(self.num_cam):
                     # x1y1x2y2
+                    if not img_bboxs[cam]:
+                        img_bboxs[cam].append([-1, -1, -1, -1])
+                        img_pids[cam].append(-1)
                     self.imgs_gt[frame][cam] = (torch.tensor(img_bboxs[cam]), torch.tensor(img_pids[cam]))
                     
         print(f'Number of frames: {num_frame}, Number of world bounding boxes: {num_world_bbox}, '
@@ -351,8 +358,8 @@ class PedestrianDataset(VisionDataset):
         if self.is_train:
             Rz = torch.eye(3)
             scene_center = torch.tensor([0., 0., 0.], dtype=torch.float32)
-            off = 0.25
-            # off = 0.05
+            # off = 0.25
+            off = 0.05
             scene_center[:2].uniform_(-off, off)
             augment = geom.merge_rt(Rz.unsqueeze(0), -scene_center.unsqueeze(0)).squeeze()
             worldgrid_T_worldcoord = torch.matmul(augment, worldgrid_T_worldcoord)

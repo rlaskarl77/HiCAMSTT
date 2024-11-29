@@ -227,3 +227,5 @@ visualization/
 checkpoints/
 reid/
 experiments
+exp
+**/*/SNU**.json

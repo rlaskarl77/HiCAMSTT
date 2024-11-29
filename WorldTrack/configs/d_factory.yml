@@ -1,0 +1,12 @@
+data:
+  class_path: datasets.PedestrianDataModule
+  init_args:
+    data_dir: "/data/namgi/HiCAMS/20241022/07"
+model:
+  resolution: [300, 2, 75]  # Y,Z,X
+  bounds: [0, 300, 0, 1200, 0, 2]  # xmin,xmax,ymin,ymax,zmin,zmax
+  depth: [32, 250, 3250]
+  z_sign: 1
+  num_cameras: 2
+trainer:
+  max_epochs: 60 #500

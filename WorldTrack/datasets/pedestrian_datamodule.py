@@ -10,6 +10,7 @@ from datasets.hdc_dataset import HDC
 from datasets.aicity_dataset import AiCity
 from datasets.pedestrian_dataset import PedestrianDataset
 from datasets.sampler import TemporalSampler
+from datasets.factory_dataset import Factory
 
 
 class PedestrianDataModule(pl.LightningDataModule):
@@ -46,8 +47,10 @@ class PedestrianDataModule(pl.LightningDataModule):
             base = MultiviewX(self.data_dir)
         elif "scene" in self.dataset.lower():
             base = AiCity(self.data_dir)
-        elif '20240110'or '20240415' or '20240702' in self.dataset.lower():
-            base = HDC(self.data_dir)
+        # elif '20240110'or '20240415' or '20240702' in self.dataset.lower():
+        #     base = HDC(self.data_dir)
+        elif '07' in self.dataset.lower():
+            base = Factory(self.data_dir)
         else:
             raise ValueError(f'Unknown dataset name {self.dataset}')
 

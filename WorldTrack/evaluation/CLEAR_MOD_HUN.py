@@ -7,7 +7,7 @@ def getDistance(x1, y1, x2, y2):
     return math.sqrt(pow((x1 - x2), 2) + pow((y1 - y2), 2))
 
 
-def CLEAR_MOD_HUN(gt, det, du=2.5):
+def CLEAR_MOD_HUN(gt, det, du=2.5, threshold=50):
     """
     @param gt: the ground truth result matrix
     @param det: the detection result matrix
@@ -27,7 +27,8 @@ def CLEAR_MOD_HUN(gt, det, du=2.5):
     [3]	MODA          - N-MODA
     [4]	MODP          - N-MODP
     """
-    td = 50 / du  # distance threshold
+    # td = 50 / du  # distance threshold
+    td = threshold / du  # distance threshold
 
     F = int(max(gt[:, 0])) + 1
     N = int(max(det[:, 1])) + 1

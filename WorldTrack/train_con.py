@@ -357,8 +357,8 @@ class WorldTrackModel(pl.LightningModule):
     def loss(self, target, output):
         center_e = output['instance_center']
         offset_e = output['instance_offset']
-        size_e = output['instance_size']
-        rot_e = output['instance_rot']
+        # size_e = output['instance_size']
+        # rot_e = output['instance_rot']
 
         center_img_e = output['img_center']
 
@@ -663,8 +663,10 @@ class WorldTrackModel(pl.LightningModule):
             # output on bev plane
             center_e = output['instance_center']
             offset_e = output['instance_offset']
-            size_e = output['instance_size']
-            rot_e = output['instance_rot']
+            # size_e = output['instance_size']
+            # rot_e = output['instance_rot']
+            size_e = None
+            rot_e = None
             
             
             self.draw_detection(item, output, batch_idx)
@@ -870,13 +872,16 @@ class WorldTrackModel(pl.LightningModule):
             '''
             unit = 2.5 if self.test_dataset == 'wildtrack' or self.test_dataset == 'multiviewx' \
                 else 2.5 if self.test_dataset == 'aicity_lt' or self.test_dataset == 'aicity' \
-                else 1.
+                else 10.
+            threshold = 50 if self.test_dataset == 'wildtrack' or self.test_dataset == 'multiviewx' \
+                else 50 if self.test_dataset == 'aicity_lt' or self.test_dataset == 'aicity' \
+                else 150
             # detection
             pred_path = osp.join(log_dir, 'moda_pred.txt')
             gt_path = osp.join(log_dir, 'moda_gt.txt')
             np.savetxt(pred_path, np.array(self.moda_pred_list), '%f', delimiter=' ', newline='\n')
             np.savetxt(gt_path, np.array(self.moda_gt_list), '%d', delimiter=' ', newline='\n')
-            recall, precision, moda, modp = modMetricsCalculator(osp.abspath(pred_path), osp.abspath(gt_path), unit)
+            recall, precision, moda, modp = modMetricsCalculator(osp.abspath(pred_path), osp.abspath(gt_path), unit, threshold)
             self.log(f'detect/recall', recall)
             self.log(f'detect/precision', precision)
             self.log(f'detect/moda', moda)
@@ -889,7 +894,7 @@ class WorldTrackModel(pl.LightningModule):
             '''
             scale = 0.025 if self.test_dataset == 'wildtrack' or self.test_dataset == 'multiviewx' \
                 else 0.025 if self.test_dataset == 'aicity_lt' or self.test_dataset == 'aicity' \
-                else 1.
+                else 0.1
             pred_path = osp.join(log_dir, 'mota_pred.txt')
             gt_path = osp.join(log_dir, 'mota_gt.txt')
             np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')
@@ -1034,7 +1039,7 @@ class WorldTrackModel(pl.LightningModule):
         
         S = rgb_cams.shape[0]
         heatmap = center_e.amax(0).sigmoid().squeeze().cpu().unsqueeze(0).unsqueeze(0).repeat(S, 1, 1, 1)
-        heatmap = torch.nn.functional.interpolate(heatmap, size=(900, 900), mode='bilinear', align_corners=False)
+        heatmap = torch.nn.functional.interpolate(heatmap, size=(300, 1200), mode='bilinear', align_corners=False)
      
         ref_T_cams = torch.matmul(ref_T_global.detach().cpu().repeat(S, 1, 1), 
                                   torch.inverse(cams_T_global.detach().cpu()))  # B*S,4,4
