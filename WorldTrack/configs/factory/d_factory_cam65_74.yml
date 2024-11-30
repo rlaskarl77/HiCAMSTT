@@ -3,7 +3,7 @@ data:
   init_args:
     data_dirs: ["/cvdata1/datasets/HiCAMS/20241022/02", "/cvdata1/datasets/HiCAMS/20241022/07", "/cvdata1/datasets/HiCAMS/20241022/12", "/cvdata1/datasets/HiCAMS/20241022/13"]
     batch_size: 2
-    num_frames: [340, 246]
+    num_frames: [260, 365, 85, 165]
 model:
   resolution: [250, 2, 125]  
   bounds: [0, 500, 0, 1000, 0, 2]
