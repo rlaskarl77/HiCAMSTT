@@ -1,0 +1,15 @@
+data:
+  class_path: datasets.FactoryDataModule
+  init_args:
+    data_dirs: ["/cvdata1/datasets/HiCAMS/20241022/05", "/cvdata1/datasets/HiCAMS/20241022/08", "/cvdata1/datasets/HiCAMS/20241022/09"]
+    batch_size: 2
+    num_frames: [340, 246]
+model:
+  resolution: [250, 2, 125]  
+  bounds: [0, 500, 0, 1000, 0, 2]
+  depth: [32, 250, 3250]
+  z_sign: 1
+  num_cameras: 2
+  use_temporal_cache: True
+trainer:
+  max_epochs: 50
