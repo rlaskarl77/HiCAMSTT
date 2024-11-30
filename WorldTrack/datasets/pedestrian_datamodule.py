@@ -8,10 +8,13 @@ from datasets.multiviewx_dataset import MultiviewX
 from datasets.wildtrack_dataset import Wildtrack
 from datasets.hdc_dataset import HDC
 from datasets.aicity_dataset import AiCity
+from datasets.factory_dataset_cam63_72 import FactoryCam6372
+from datasets.factory_dataset_cam64_73 import FactoryCam6473
+from datasets.factory_dataset_cam65_74 import FactoryCam6574
+from datasets.factory_dataset_cam66_76 import FactoryCam6676
+from datasets.factory_dataset_cam68_78 import FactoryCam6878
 from datasets.pedestrian_dataset import PedestrianDataset
 from datasets.sampler import TemporalSampler
-from datasets.factory_dataset import Factory
-
 
 class PedestrianDataModule(pl.LightningDataModule):
     def __init__(
@@ -23,6 +26,7 @@ class PedestrianDataModule(pl.LightningDataModule):
             bounds=None,
             accumulate_grad_batches=8,
             test_reid: bool=False,
+            num_frame=100,
     ):
         super().__init__()
         self.data_dir = data_dir
@@ -39,6 +43,7 @@ class PedestrianDataModule(pl.LightningDataModule):
         self.data_train = None
         
         self.test_reid = test_reid
+        self.num_frame = num_frame
 
     def setup(self, stage: Optional[str] = None):
         if 'wildtrack' in self.dataset.lower():
@@ -47,10 +52,18 @@ class PedestrianDataModule(pl.LightningDataModule):
             base = MultiviewX(self.data_dir)
         elif "scene" in self.dataset.lower():
             base = AiCity(self.data_dir)
-        # elif '20240110'or '20240415' or '20240702' in self.dataset.lower():
-        #     base = HDC(self.data_dir)
-        elif '07' in self.dataset.lower():
-            base = Factory(self.data_dir)
+        elif '14' in self.dataset.lower():
+            base = FactoryCam6372(self.data_dir, self.num_frame)
+        elif any(x in self.dataset.lower() for x in ['01', '06']):
+            base = FactoryCam6473(self.data_dir, self.num_frame)
+        elif any(x in self.dataset.lower() for x in ['02', '03', '07', '12', '13']):
+            base = FactoryCam6574(self.data_dir, self.num_frame)
+        elif any(x in self.dataset.lower() for x in ['10', '11']):
+            base = FactoryCam6676(self.data_dir, self.num_frame)
+        elif any(x in self.dataset.lower() for x in ['05', '08', '09']):
+            base = FactoryCam6878(self.data_dir, self.num_frame)
+        elif '20240110'or '20240415' or '20240702' in self.dataset.lower():
+            base = HDC(self.data_dir)
         else:
             raise ValueError(f'Unknown dataset name {self.dataset}')
 
