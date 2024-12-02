@@ -466,10 +466,12 @@ class WorldTrackInference:
     def __init__(self, model_configs, sources):
         self.models = {}
         self.datamodule = StreamFactoryDataModule(sources=sources)
+        self.global_id_counter = 0  # 통합 ID counter
+        self.id_mapping = {}  # (scene, local_id) -> global_id mapping
+        self.id_history = {}  # global_id -> position history
         
-        # Initialize models for each scene
         for scene_name, config in model_configs.items():
-            checkpoint_path = config.pop('checkpoint_path')  # Remove checkpoint path from config
+            checkpoint_path = config.pop('checkpoint_path')
             model = WorldTrackModel.load_from_checkpoint(
                 checkpoint_path=checkpoint_path,
                 **config
@@ -484,9 +486,8 @@ class WorldTrackInference:
         
         while True:
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-            all_results = []
+            scene_results = []
             
-            # Run inference on each scene
             for scene_name, loader in zip(self.models.keys(), scene_loaders):
                 model = self.models[scene_name]
                 
@@ -495,20 +496,129 @@ class WorldTrackInference:
                     with torch.no_grad():
                         output = model.predict_step(batch, 0)
                         results = model.mota_now
-                        all_results.extend(results)
+                        
+                        if len(results) > 0:
+                            results = np.array(results)
+                            # Add scene info to track_ids
+                            scene_results.append((scene_name, results))
+                            
                 except StopIteration:
                     continue
                 except Exception as e:
                     print(f"Error processing scene {scene_name}: {e}")
                     continue
             
-            # Save combined results
-            if all_results:
-                hdc_data = self.convert_results_to_hdc_format(all_results, current_time)
-                hdc_data.save_to_file(f"SNU_{current_time}_1.json")
+            if scene_results:
+                final_results = self.process_all_results(scene_results)
+                
+                if len(final_results) > 0:
+                    hdc_data = self.convert_results_to_hdc_format(final_results, current_time)
+                    hdc_data.save_to_file(f"SNU_{current_time}_1.json")
             
-            # Wait until next interval
-            time.sleep(0.5)  # Adjust based on target FPS
+            time.sleep(0.5)
+
+    def process_all_results(self, scene_results):
+        all_detections = []
+        
+        # Collect all detections with scene info
+        for scene_name, results in scene_results:
+            for result in results:
+                det = result.copy()
+                local_id = int(det[2])
+                scene_track_id = (scene_name, local_id)
+                det = np.append(det, [scene_name, local_id])  # Add scene info
+                all_detections.append(det)
+        
+        if not all_detections:
+            return []
+            
+        all_detections = np.array(all_detections)
+        return self.nms_tracking_results(all_detections)
+
+    def nms_tracking_results(self, results, distance_threshold=2.0):
+        """
+        NMS with ID preservation
+        results: Nx12 array (seq, frame, track_id, _, _, _, _, score, x, y, scene_name, local_id)
+        """
+        if len(results) == 0:
+            return results
+
+        # Get numeric data only for distance calculation
+        numeric_data = results[:, :10].astype(float)  # Exclude scene_name, local_id
+        scene_info = results[:, 10:]  # Keep scene info separately
+        
+        # Group by proximity
+        groups = []
+        used = set()
+        
+        for i in range(len(results)):
+            if i in used:
+                continue
+                
+            current_group = [i]
+            current_pos = numeric_data[i, 8:10]  # Use numeric data for position
+            
+            for j in range(i + 1, len(results)):
+                if j in used:
+                    continue
+                    
+                other_pos = numeric_data[j, 8:10]  # Use numeric data for position
+                distance = np.sqrt(np.sum((other_pos - current_pos) ** 2))
+                
+                if distance < distance_threshold:
+                    current_group.append(j)
+                    used.add(j)
+            
+            groups.append(current_group)
+            used.add(i)
+
+        final_results = []
+        for group in groups:
+            group_results = results[group]
+            
+            # Get scene track IDs in the group
+            scene_track_ids = [(r[-2], int(r[-1])) for r in group_results]
+            
+            # Find existing global ID
+            global_id = None
+            for scene_track_id in scene_track_ids:
+                if scene_track_id in self.id_mapping:
+                    global_id = self.id_mapping[scene_track_id]
+                    break
+            
+            # Create new global ID if needed
+            if global_id is None:
+                global_id = self.global_id_counter
+                self.global_id_counter += 1
+            
+            # Update mappings for all tracks in group
+            for scene_track_id in scene_track_ids:
+                self.id_mapping[scene_track_id] = global_id
+            
+            # Use highest scoring detection's position
+            best_idx = np.argmax(group_results[:, 7])
+            best_detection = group_results[best_idx].copy()
+            best_detection[2] = global_id  # Update with global ID
+            
+            # Update position history
+            pos = best_detection[8:10]
+            self.id_history[global_id] = {
+                'pos': pos,
+                'last_seen': time.time()
+            }
+            
+            final_results.append(best_detection[:10])  # Remove scene info
+
+        # Clean old entries
+        current_time = time.time()
+        old_ids = {id for id, data in self.id_history.items() 
+                  if current_time - data['last_seen'] > 5.0}
+        
+        for id in old_ids:
+            self.id_history.pop(id)
+            self.id_mapping = {k: v for k, v in self.id_mapping.items() if v != id}
+
+        return np.array(final_results)
 
     @staticmethod
     def convert_results_to_hdc_format(results, time):
