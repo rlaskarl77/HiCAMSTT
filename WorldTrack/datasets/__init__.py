@@ -3,5 +3,6 @@ from .pedestrian_datamodule import PedestrianDataModule
 from .stream_datamodule import StreamDataModule
 from .bev_datamodule import BevDataModule
 from .stream_factory_dataset import StreamFactoryDataModule
+from .factory_datamodule import FactoryDataModule
 # from .v2x_datamodule import V2XDataModule
 # from .tum_traffic_datamodule import TUMTrafDataModule
