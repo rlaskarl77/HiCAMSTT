@@ -311,7 +311,7 @@ class LoadStreams:
         # Parameters
         self.num_cam = 2
         self.img_shape = (1080, 1920, 3)
-        self.worldgrid_shape = resolution[0::2]
+        self.worldgrid_shape = [bounds[3], bounds[1]]
         self.resolution = resolution
         self.bounds = bounds
         self.data_aug_conf = {'final_dim': final_dim}
