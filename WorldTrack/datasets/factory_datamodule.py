@@ -9,7 +9,6 @@ from datasets.factory_dataset_cam64_73 import FactoryCam6473
 from datasets.factory_dataset_cam65_74 import FactoryCam6574
 from datasets.factory_dataset_cam66_76 import FactoryCam6676
 from datasets.factory_dataset_cam68_78 import FactoryCam6878
-from datasets.factorysampler import FactoryTemporalSampler
 from datasets.sampler import TemporalSampler
 from datasets.pedestrian_dataset import PedestrianDataset
 
