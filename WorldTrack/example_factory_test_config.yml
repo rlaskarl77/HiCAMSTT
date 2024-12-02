@@ -1,0 +1,44 @@
+# test_config.yml
+model_configs:
+  scene1:
+    checkpoint_path: /home/namgi/HiCAMSTT/exp/lightning_logs/train/factory/mvdet/baseline/checkpoints/model-epoch=51-val_loss=7.70-val_center=4.07.ckpt
+    resolution: [250, 4, 125]
+    bounds: [0, 500, 0, 1000, 0, 2]
+    scene_centroid: [0.0, 0.0, 0.0]
+    num_cameras: 2
+  scene2:
+    checkpoint_path: /home/namgi/HiCAMSTT/exp/lightning_logs/train/factory/mvdet/baseline/checkpoints/model-epoch=51-val_loss=7.70-val_center=4.07.ckpt
+    resolution: [250, 4, 125]
+    bounds: [0, 500, 0, 1000, 0, 2]
+    scene_centroid: [0.0, 0.0, 0.0]
+    num_cameras: 2
+  scene3:
+    checkpoint_path: /home/namgi/HiCAMSTT/exp/lightning_logs/train/factory/mvdet/baseline/checkpoints/model-epoch=51-val_loss=7.70-val_center=4.07.ckpt
+    resolution: [250, 4, 125]
+    bounds: [0, 500, 0, 1000, 0, 2]
+    scene_centroid: [0.0, 0.0, 0.0]
+    num_cameras: 2
+  scene4:
+    checkpoint_path: /home/namgi/HiCAMSTT/exp/lightning_logs/train/factory/mvdet/baseline/checkpoints/model-epoch=51-val_loss=7.70-val_center=4.07.ckpt
+    resolution: [250, 4, 125]
+    bounds: [0, 500, 0, 1000, 0, 2]
+    scene_centroid: [0.0, 0.0, 0.0]
+    num_cameras: 2
+  scene5:
+    checkpoint_path: /home/namgi/HiCAMSTT/exp/lightning_logs/train/factory/mvdet/baseline/checkpoints/model-epoch=51-val_loss=7.70-val_center=4.07.ckpt
+    resolution: [250, 4, 125]
+    bounds: [0, 500, 0, 1000, 0, 2]
+    scene_centroid: [0.0, 0.0, 0.0]
+    num_cameras: 2
+
+sources:
+  - rtsp://210.99.70.120:1935/live/cctv007.stream
+  - rtsp://210.99.70.120:1935/live/cctv007.stream
+  - rtsp://210.99.70.120:1935/live/cctv007.stream
+  - rtsp://210.99.70.120:1935/live/cctv007.stream
+  - rtsp://210.99.70.120:1935/live/cctv007.stream
+  - rtsp://210.99.70.120:1935/live/cctv007.stream
+  - rtsp://210.99.70.120:1935/live/cctv007.stream
+  - rtsp://210.99.70.120:1935/live/cctv007.stream
+  - rtsp://210.99.70.120:1935/live/cctv007.stream
+  - rtsp://210.99.70.120:1935/live/cctv007.stream

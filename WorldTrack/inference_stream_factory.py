@@ -1,6 +1,9 @@
 from datetime import datetime
 import os.path as osp
 import time
+import argparse
+import yaml
+from typing import Dict, List   
 import torch
 import lightning as pl
 import matplotlib.pyplot as plt
@@ -648,6 +651,26 @@ class WorldTrackInference:
             camera=[Camera(camera_id="100", objects=object_list)]
         )
 
+def load_config(config_path: str) -> Dict:
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    return config
+
+def validate_config(config: Dict) -> None:
+    """Validate config structure and required fields"""
+    required_model_fields = ['checkpoint_path', 'resolution', 'bounds', 'scene_centroid', 'num_cameras']
+    
+    if 'model_configs' not in config or 'sources' not in config:
+        raise ValueError("Config must contain 'model_configs' and 'sources'")
+        
+    if len(config['sources']) != 10:  # Assuming we need exactly 10 sources
+        raise ValueError("Config must contain exactly 10 sources")
+        
+    for scene, cfg in config['model_configs'].items():
+        for field in required_model_fields:
+            if field not in cfg:
+                raise ValueError(f"Missing required field '{field}' in {scene} config")
+            
 # Usage
 model_configs = {
     'scene1': {
@@ -700,13 +723,29 @@ sources = [
     "rtsp://210.99.70.120:1935/live/cctv007.stream",
 ]
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Run multi-scene tracking inference')
+    parser.add_argument('--config', type=str, required=True,
+                      default='example_factory_test_config.yml',
+                      help='Path to config YAML file')
+    return parser.parse_args()
+
 if __name__ == '__main__':
     import signal
     import sys
-
+    
+    args = parse_args()
+    
+    # Load and validate config
+    config = load_config(args.config)
+    validate_config(config)
+    
     torch.set_float32_matmul_precision('medium')
     
-    inference = WorldTrackInference(model_configs, sources)
+    inference = WorldTrackInference(
+        model_configs=config['model_configs'],
+        sources=config['sources']
+    )
     
     def signal_handler(sig, frame):
         print('Shutting down...')
