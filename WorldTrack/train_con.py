@@ -699,8 +699,9 @@ class WorldTrackModel(pl.LightningModule):
                     self.moda_pred_list.extend([[frame, 0, 0]])
 
                 if len(gt_list) > 0:
+                    gt_list = gt_list[gt_list[:, 0] == frame]
                     self.moda_gt_list.extend(gt_list.tolist())
-                    self.moda_pred_list.extend([[frame, x.item(), y.item()] for x, y in xy[valid]])
+                self.moda_pred_list.extend([[frame, x.item(), y.item()] for x, y in xy[valid]])
                 
             mota_now = []
             
@@ -710,8 +711,8 @@ class WorldTrackModel(pl.LightningModule):
                         zip(item['sequence_num'], item['frame'], item['grid_gt'], ref_xy.cpu(), ref_xy_prev.cpu(),
                             scores_e.cpu(), reid_e.cpu())):
                     frame = int(frame.item())
-                    output_stracks = self.test_tracker.update(bev_det, bev_prev, score, reid)
-                    # output_stracks = self.test_tracker.update_old(bev_det, bev_prev, score, reid)
+                    # output_stracks = self.test_tracker.update(bev_det, bev_prev, score, reid)
+                    output_stracks = self.test_tracker.update_old(bev_det, bev_prev, score, reid)
                     
                     mota_gt = [[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
                             for x, y, i in grid_gt[grid_gt.sum(1) != 0]]
@@ -735,9 +736,8 @@ class WorldTrackModel(pl.LightningModule):
                         zip(item['sequence_num'], item['frame'], item['grid_gt'], ref_xy.cpu(), ref_xy_prev.cpu(),
                             scores_e.cpu())):
                     frame = int(frame.item())
-                    output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
-                    # output_stracks = self.test_tracker.update_old(bev_det, bev_prev, score)
-                    
+                    # output_stracks = self.test_tracker.update(bev_det, bev_prev, score)
+                    output_stracks = self.test_tracker.update_old(bev_det, bev_prev, score)
                     mota_gt = [[seq_num.item(), frame, i.item(), -1, -1, -1, -1, 1, x.item(),  y.item(), -1]
                             for x, y, i in grid_gt[grid_gt.sum(1) != 0]]
                     mota_pred = [[seq_num.item(), frame, s.track_id, -1, -1, -1, -1, s.score.item()]
