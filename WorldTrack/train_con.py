@@ -694,11 +694,13 @@ class WorldTrackModel(pl.LightningModule):
                 
                 gt_list = [[frame, x.item(), y.item()] for x, y, _ in grid_gt[grid_gt.sum(1) != 0]]
                 gt_list = np.array(gt_list)
-                gt_list = gt_list[gt_list[:, 0] == frame]
+                if len(gt_list) == 0:
+                    self.moda_gt_list.extend([[frame, 0, 0]])
+                    self.moda_pred_list.extend([[frame, 0, 0]])
 
                 if len(gt_list) > 0:
                     self.moda_gt_list.extend(gt_list.tolist())
-                self.moda_pred_list.extend([[frame, x.item(), y.item()] for x, y in xy[valid]])
+                    self.moda_pred_list.extend([[frame, x.item(), y.item()] for x, y in xy[valid]])
                 
             mota_now = []
             
@@ -743,7 +745,9 @@ class WorldTrackModel(pl.LightningModule):
                     
                     mota_gt = np.array(mota_gt)
                     mota_pred = np.array(mota_pred)
-                    if len(mota_gt) == 0 or len(mota_pred) == 0:
+                    if len(mota_gt) == 0:
+                        mota_gt = np.zeros((0, 11))
+                    if len(mota_pred) == 0:
                         mota_pred = np.zeros((0, 11))
                     
                     mota_gt = mota_gt[mota_gt[:, 0] == seq_num.item()]
@@ -872,10 +876,10 @@ class WorldTrackModel(pl.LightningModule):
             '''
             unit = 2.5 if self.test_dataset == 'wildtrack' or self.test_dataset == 'multiviewx' \
                 else 2.5 if self.test_dataset == 'aicity_lt' or self.test_dataset == 'aicity' \
-                else 10.
+                else 5.
             threshold = 50 if self.test_dataset == 'wildtrack' or self.test_dataset == 'multiviewx' \
                 else 50 if self.test_dataset == 'aicity_lt' or self.test_dataset == 'aicity' \
-                else 150
+                else 750
             # detection
             pred_path = osp.join(log_dir, 'moda_pred.txt')
             gt_path = osp.join(log_dir, 'moda_gt.txt')
@@ -894,7 +898,7 @@ class WorldTrackModel(pl.LightningModule):
             '''
             scale = 0.025 if self.test_dataset == 'wildtrack' or self.test_dataset == 'multiviewx' \
                 else 0.025 if self.test_dataset == 'aicity_lt' or self.test_dataset == 'aicity' \
-                else 0.1
+                else 0.05
             pred_path = osp.join(log_dir, 'mota_pred.txt')
             gt_path = osp.join(log_dir, 'mota_gt.txt')
             np.savetxt(pred_path, np.array(self.mota_pred_list), '%f', delimiter=',')
@@ -1102,7 +1106,11 @@ class WorldTrackModel(pl.LightningModule):
     def draw_prediction(self, item, output, mota_now, batch_idx=0):
         
         writer = self.logger.experiment
-        
+
+        if not mota_now:
+            print(f"No data to draw for batch {batch_idx}")
+            return  
+    
         center_e: torch.Tensor = output['instance_center'][0]
         rgb_cams: torch.Tensor = item['img'][0]
         pix_T_cams: torch.Tensor = item['intrinsic'][0]

@@ -4,10 +4,6 @@ from typing import Optional, List
 import lightning as pl
 from torch.utils.data import DataLoader, ConcatDataset
 
-from datasets.multiviewx_dataset import MultiviewX
-from datasets.wildtrack_dataset import Wildtrack
-from datasets.hdc_dataset import HDC
-from datasets.aicity_dataset import AiCity
 from datasets.factory_dataset_cam63_72 import FactoryCam6372
 from datasets.factory_dataset_cam64_73 import FactoryCam6473
 from datasets.factory_dataset_cam65_74 import FactoryCam6574
@@ -28,7 +24,6 @@ class FactoryDataModule(pl.LightningDataModule):
             test_reid: bool = False,
             num_frames: list = [100],
             test_scene: Optional[str] = None,
-            test_scene_num_frame: Optional[int] = None,
     ):
         super().__init__()
         self.data_dirs = [data_dirs] if isinstance(data_dirs, str) else data_dirs
@@ -46,7 +41,7 @@ class FactoryDataModule(pl.LightningDataModule):
         self.test_reid = test_reid
         self.batch_size = batch_size
         self.test_scene = test_scene if test_scene is not None else self.data_dirs[0]
-        self.test_scene_num_frame = test_scene_num_frame if test_scene is not None else self.num_frames[0]
+        self.test_scene_num_frame = self.num_frames[self.data_dirs.index(test_scene)] if test_scene is not None else self.num_frames[0]
         self.groups = {
             "6372": ['14'],
             "6473": ['01', '06'],
@@ -61,20 +56,21 @@ class FactoryDataModule(pl.LightningDataModule):
 
         for data_dir in self.data_dirs:
             found = False
+            dir_name = os.path.basename(data_dir)
             for group, identifiers in self.groups.items():
-                if any(x in data_dir.lower() for x in identifiers):
+                if any(x in dir_name.lower() for x in identifiers):
                     if matched_group is None:
                         matched_group = group
                     elif matched_group != group:
                         raise ValueError(
                             f"Data directories belong to multiple groups. "
-                            f"Found mismatch: {data_dir} does not belong to group {matched_group}."
+                            f"Found mismatch: {dir_name} does not belong to group {matched_group}."
                         )
                     found = True
                     break
             if not found:
                 raise ValueError(
-                    f"Unknown dataset type in path: {data_dir}. It does not match any group."
+                    f"Unknown dataset type in path: {dir_name}. It does not match any group."
                 )
 
         if matched_group is None:

@@ -198,23 +198,23 @@ CAMERA_PARAMS = {
 SCENE_CONFIGS = {
     "scene1": {
         "cameras": (63, 72),
-        "worldcoord_from_worldgrid_mat": [[0.1, 0, 0], [0, 0.1, 240], [0, 0, 1]]
+        "worldcoord_from_worldgrid_mat": [[0.05, 0, 0], [0, 0.05, 240], [0, 0, 1]]
     },
     "scene2": {
         "cameras": (64, 73),
-        "worldcoord_from_worldgrid_mat": [[0.1, 0, 0], [0, 0.1, 190], [0, 0, 1]]
+        "worldcoord_from_worldgrid_mat": [[0.05, 0, 0], [0, 0.05, 185], [0, 0, 1]]
     },
     "scene3": {
         "cameras": (65, 74),
-        "worldcoord_from_worldgrid_mat": [[0.1, 0, 0], [0, 0.1, 150], [0, 0, 1]]
+        "worldcoord_from_worldgrid_mat": [[0.05, 0, 0], [0, 0.05, 150], [0, 0, 1]]
     },
     "scene4": {
         "cameras": (66, 76),
-        "worldcoord_from_worldgrid_mat": [[0.1, 0, 0], [0, 0.1, 85], [0, 0, 1]]
+        "worldcoord_from_worldgrid_mat": [[0.05, 0, 0], [0, 0.05, 85], [0, 0, 1]]
     },
     "scene5": {
         "cameras": (68, 78),
-        "worldcoord_from_worldgrid_mat": [[0.1, 0, 0], [0, 0.1, 0], [0, 0, 1]]
+        "worldcoord_from_worldgrid_mat": [[0.05, 0, 0], [0, 0.05, 0], [0, 0, 1]]
     }
 }
 
@@ -311,7 +311,7 @@ class LoadStreams:
         # Parameters
         self.num_cam = 2
         self.img_shape = (1080, 1920, 3)
-        self.worldgrid_shape = resolution[0::2]
+        self.worldgrid_shape = [bounds[3], bounds[1]]
         self.resolution = resolution
         self.bounds = bounds
         self.data_aug_conf = {'final_dim': final_dim}
