@@ -666,12 +666,12 @@ class WorldTrackInference:
         for frame, track_id, x, y in data:
             object_list.append(ObjectType(
                 type=0,
-                id=track_id,
+                id=int(track_id),
                 action=0,
                 value=0,
-                posx=x,
+                posx=float(x),
                 posy=0.,
-                posz=y,
+                posz=float(y),
                 sizex=0,
                 sizey=0,
                 sizez=0,
@@ -680,7 +680,7 @@ class WorldTrackInference:
 
         return Data(
             time=time,
-            camera=[Camera(camera_id="100", objects=object_list)]
+            camera=[Camera(camera_id=100, objects=object_list)]
         )
 
 def load_config(config_path: str) -> Dict:
