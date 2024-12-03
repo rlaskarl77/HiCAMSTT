@@ -1,4 +1,5 @@
 from datetime import datetime
+import os
 import os.path as osp
 import time
 import argparse
@@ -466,12 +467,14 @@ class WorldTrackModel(pl.LightningModule):
         
 
 class WorldTrackInference:
-    def __init__(self, model_configs, sources):
+    def __init__(self, model_configs, sources, save_dir='.', max_id=999999):
         self.models = {}
         self.datamodule = StreamFactoryDataModule(sources=sources)
-        self.global_id_counter = 0  # 통합 ID counter
-        self.id_mapping = {}  # (scene, local_id) -> global_id mapping
-        self.id_history = {}  # global_id -> position history
+        self.global_id_counter = 0
+        self.max_id = max_id
+        self.id_mapping = {}
+        self.id_history = {}
+        self.save_dir = save_dir
         
         for scene_name, config in model_configs.items():
             checkpoint_path = config.pop('checkpoint_path')
@@ -483,9 +486,38 @@ class WorldTrackInference:
             model.cuda()
             self.models[scene_name] = model
 
+    def get_next_available_id(self):
+        """Find the next available ID, reusing old ones if needed"""
+        if self.global_id_counter <= self.max_id:
+            next_id = self.global_id_counter
+            self.global_id_counter += 1
+            return next_id
+            
+        # Find the smallest unused ID
+        used_ids = set(self.id_mapping.values())
+        for i in range(self.max_id + 1):
+            if i not in used_ids:
+                return i
+                
+        # If no IDs available, reuse oldest ID
+        oldest_time = float('inf')
+        oldest_id = 0
+        for id, data in self.id_history.items():
+            if data['last_seen'] < oldest_time:
+                oldest_time = data['last_seen']
+                oldest_id = id
+        
+        # Clean up old ID
+        self.id_history.pop(oldest_id)
+        self.id_mapping = {k: v for k, v in self.id_mapping.items() if v != oldest_id}
+        return oldest_id
+
     def run_inference(self):
         self.datamodule.setup('predict')
         scene_loaders = self.datamodule.predict_dataloader()
+        
+        # Create save directory if it doesn't exist
+        os.makedirs(self.save_dir, exist_ok=True)
         
         while True:
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
@@ -516,7 +548,8 @@ class WorldTrackInference:
                 
                 if len(final_results) > 0:
                     hdc_data = self.convert_results_to_hdc_format(final_results, current_time)
-                    hdc_data.save_to_file(f"SNU_{current_time}_1.json")
+                    save_path = os.path.join(self.save_dir, f"SNU_{current_time}_1.json")
+                    hdc_data.save_to_file(save_path)
             
             time.sleep(0.5)
 
@@ -591,8 +624,7 @@ class WorldTrackInference:
             
             # Create new global ID if needed
             if global_id is None:
-                global_id = self.global_id_counter
-                self.global_id_counter += 1
+                global_id = self.get_next_available_id()
             
             # Update mappings for all tracks in group
             for scene_track_id in scene_track_ids:
@@ -634,12 +666,12 @@ class WorldTrackInference:
         for frame, track_id, x, y in data:
             object_list.append(ObjectType(
                 type=0,
-                id=track_id,
+                id=int(track_id),
                 action=0,
                 value=0,
-                posx=x,
+                posx=float(x),
                 posy=0.,
-                posz=y,
+                posz=float(y),
                 sizex=0,
                 sizey=0,
                 sizez=0,
@@ -648,7 +680,7 @@ class WorldTrackInference:
 
         return Data(
             time=time,
-            camera=[Camera(camera_id="100", objects=object_list)]
+            camera=[Camera(camera_id=100, objects=object_list)]
         )
 
 def load_config(config_path: str) -> Dict:
@@ -728,6 +760,8 @@ def parse_args():
     parser.add_argument('--config', type=str, required=True,
                       default='example_factory_test_config.yml',
                       help='Path to config YAML file')
+    parser.add_argument('--save-dir', type=str, default='.',
+                      help='Directory to save output JSON files')
     return parser.parse_args()
 
 if __name__ == '__main__':
@@ -744,7 +778,8 @@ if __name__ == '__main__':
     
     inference = WorldTrackInference(
         model_configs=config['model_configs'],
-        sources=config['sources']
+        sources=config['sources'],
+        save_dir=args.save_dir
     )
     
     def signal_handler(sig, frame):
