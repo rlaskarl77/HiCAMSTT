@@ -694,10 +694,6 @@ class WorldTrackModel(pl.LightningModule):
                 
                 gt_list = [[frame, x.item(), y.item()] for x, y, _ in grid_gt[grid_gt.sum(1) != 0]]
                 gt_list = np.array(gt_list)
-                if len(gt_list) == 0:
-                    self.moda_gt_list.extend([[frame, 0, 0]])
-                    self.moda_pred_list.extend([[frame, 0, 0]])
-
                 if len(gt_list) > 0:
                     gt_list = gt_list[gt_list[:, 0] == frame]
                     self.moda_gt_list.extend(gt_list.tolist())
