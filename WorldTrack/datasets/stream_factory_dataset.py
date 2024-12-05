@@ -37,7 +37,13 @@ CAMERA_PARAMS = {
             -203.1716444195454,
             -74.53229842129745,
             187.7491104563038
-        ]
+        ],
+        "mtx_orig": [
+            [1.17969312e+03, 0.0e+0, 9.88200000e+02],
+            [0.0e+0, 1.2476522e+03, 5.27778005e+02],
+            [0.0e+0, 0.0e+0, 1.0e+0]
+        ],
+        "dist_coeff": [-0.4577794, 0.27236502, -0.00249496, -0.0012076, -0.0901687]
     },
     "cam64": {
         "mtx": [
@@ -54,7 +60,13 @@ CAMERA_PARAMS = {
             -156.92849013275108,
             89.07683058781342,
             -73.6562321696746
-        ]
+        ],
+        "mtx_orig": [
+            [1.17969312e+03, 0.0e+0, 9.88200000e+02],
+            [0.0e+0, 1.2476522e+03, 5.27778005e+02],
+            [0.0e+0, 0.0e+0, 1.0e+0]
+        ],
+        "dist_coeff": [-0.4577794, 0.27236502, -0.00249496, -0.0012076, -0.0901687]
     },
     "cam65": {
         "mtx": [
@@ -71,7 +83,13 @@ CAMERA_PARAMS = {
             -137.48520545941798,
             -65.94336472253306,
             122.10626734402585
-        ]
+        ],
+        "mtx_orig": [
+            [1.17969312e+03, 0.0e+0, 9.88200000e+02],
+            [0.0e+0, 1.2476522e+03, 5.27778005e+02],
+            [0.0e+0, 0.0e+0, 1.0e+0]
+        ],
+        "dist_coeff": [-0.4577794, 0.27236502, -0.00249496, -0.0012076, -0.0901687]
     },
     "cam66": {
         "mtx": [
@@ -88,7 +106,13 @@ CAMERA_PARAMS = {
             -91.18078911145926,
             22.453781104744184,
             -20.087448622042753
-        ]
+        ],
+        "mtx_orig": [
+            [1.17969312e+03, 0.0e+0, 9.88200000e+02],
+            [0.0e+0, 1.2476522e+03, 5.27778005e+02],
+            [0.0e+0, 0.0e+0, 1.0e+0]
+        ],
+        "dist_coeff": [-0.4577794, 0.27236502, -0.00249496, -0.0012076, -0.0901687]
     },
     "cam68": {
         "mtx": [
@@ -105,7 +129,13 @@ CAMERA_PARAMS = {
             -14.730008344652514,
             2.9114570957977857,
             26.220477687958013
-        ]
+        ],
+        "mtx_orig": [
+            [1.17969312e+03, 0.0e+0, 9.88200000e+02],
+            [0.0e+0, 1.2476522e+03, 5.27778005e+02],
+            [0.0e+0, 0.0e+0, 1.0e+0]
+        ],
+        "dist_coeff": [-0.4577794, 0.27236502, -0.00249496, -0.0012076, -0.0901687]
     },
     "cam72": {
         "mtx": [
@@ -122,7 +152,13 @@ CAMERA_PARAMS = {
             238.09508710896847,
             -76.80438550260332,
             131.30606360817924
-        ]
+        ],
+        "mtx_orig": [
+            [1.17969312e+03, 0.0e+0, 9.88200000e+02],
+            [0.0e+0, 1.2476522e+03, 5.27778005e+02],
+            [0.0e+0, 0.0e+0, 1.0e+0]
+        ],
+        "dist_coeff": [-0.4577794, 0.27236502, -0.00249496, -0.0012076, -0.0901687]
     },
     "cam73": {
         "mtx": [
@@ -139,7 +175,13 @@ CAMERA_PARAMS = {
             133.71296569471158,
             86.27019253466314,
             -108.57030320299594
-        ]
+        ],
+        "mtx_orig": [
+            [1.17969312e+03, 0.0e+0, 9.88200000e+02],
+            [0.0e+0, 1.2476522e+03, 5.27778005e+02],
+            [0.0e+0, 0.0e+0, 1.0e+0]
+        ],
+        "dist_coeff": [-0.4577794, 0.27236502, -0.00249496, -0.0012076, -0.0901687]
     },
     "cam74": {
         "mtx": [
@@ -156,7 +198,13 @@ CAMERA_PARAMS = {
             137.18635655042075,
             -65.3683602568311,
             121.28470866951317
-        ]
+        ],
+        "mtx_orig": [
+            [1.17969312e+03, 0.0e+0, 9.88200000e+02],
+            [0.0e+0, 1.2476522e+03, 5.27778005e+02],
+            [0.0e+0, 0.0e+0, 1.0e+0]
+        ],
+        "dist_coeff": [-0.4577794, 0.27236502, -0.00249496, -0.0012076, -0.0901687]
     },
     "cam76": {
         "mtx": [
@@ -173,7 +221,13 @@ CAMERA_PARAMS = {
             72.75798482816228,
             40.244222510388106,
             -40.28219527600947
-        ]
+        ],
+        "mtx_orig": [
+            [1.17969312e+03, 0.0e+0, 9.88200000e+02],
+            [0.0e+0, 1.2476522e+03, 5.27778005e+02],
+            [0.0e+0, 0.0e+0, 1.0e+0]
+        ],
+        "dist_coeff": [-0.4577794, 0.27236502, -0.00249496, -0.0012076, -0.0901687]
     },
     "cam78": {
         "mtx": [
@@ -190,7 +244,13 @@ CAMERA_PARAMS = {
             2.5818068668951097,
             11.432404299131896,
             10.888543976918278
-        ]
+        ],
+        "mtx_orig": [
+            [1.17969312e+03, 0.0e+0, 9.88200000e+02],
+            [0.0e+0, 1.2476522e+03, 5.27778005e+02],
+            [0.0e+0, 0.0e+0, 1.0e+0]
+        ],
+        "dist_coeff": [-0.4577794, 0.27236502, -0.00249496, -0.0012076, -0.0901687]
     }
 }
 
@@ -348,6 +408,33 @@ class LoadStreams:
     def __iter__(self):
         self.count = 0
         return self
+    
+    def undistort_image(self, img, cam_id):
+        # Convert PIL Image to numpy array
+        img = np.array(img)
+        
+        # convert to cv2 BGR format
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        
+        # Get camera parameters
+        mtx_orig = np.array(CAMERA_PARAMS[f'cam{cam_id}']['mtx_orig'])
+        dist_coeff = np.array(CAMERA_PARAMS[f'cam{cam_id}']['dist_coeff'])
+        
+        # Get image dimensions
+        w, h = img.shape[1], img.shape[0]
+        alpha = 0.25
+        
+        # Undistort
+        newcameramtx, roi = cv2.getOptimalNewCameraMatrix(mtx_orig, dist_coeff, (w, h), alpha, (w, h))
+        dst = cv2.undistort(img, mtx_orig, dist_coeff, None, newcameramtx)
+        
+        # Convert back to RGB
+        dst = cv2.cvtColor(dst, cv2.COLOR_BGR2RGB)
+        
+        # Convert to PIL Image
+        dst = Image.fromarray(dst)
+        
+        return dst
 
     def get_image_data(self, images, cameras):
         imgs, intrins, extrins = [], [], []
@@ -357,6 +444,10 @@ class LoadStreams:
         for img, cam in zip(images, cameras):
             # Convert BGR to RGB and to PIL Image
             img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            
+            # Undistort image (now handles PIL Image correctly)
+            img = self.undistort_image(img, self.scene_config['cameras'][cam])
+            
             W, H = img.size
 
             sx = fW / float(W)
@@ -504,4 +595,3 @@ if __name__ == "__main__":
         print(f"Error: {e}")
     finally:
         datamodule.teardown('predict')
-        
