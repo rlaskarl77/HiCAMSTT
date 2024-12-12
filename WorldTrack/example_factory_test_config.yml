@@ -33,12 +33,12 @@ model_configs:
 
 sources:
   - rtsp://210.99.70.120:1935/live/cctv007.stream
+  - rtsp://210.99.70.120:1935/live/cctv008.stream
   - rtsp://210.99.70.120:1935/live/cctv007.stream
+  - rtsp://210.99.70.120:1935/live/cctv008.stream
   - rtsp://210.99.70.120:1935/live/cctv007.stream
+  - rtsp://210.99.70.120:1935/live/cctv008.stream
   - rtsp://210.99.70.120:1935/live/cctv007.stream
+  - rtsp://210.99.70.120:1935/live/cctv008.stream
   - rtsp://210.99.70.120:1935/live/cctv007.stream
-  - rtsp://210.99.70.120:1935/live/cctv007.stream
-  - rtsp://210.99.70.120:1935/live/cctv007.stream
-  - rtsp://210.99.70.120:1935/live/cctv007.stream
-  - rtsp://210.99.70.120:1935/live/cctv007.stream
-  - rtsp://210.99.70.120:1935/live/cctv007.stream
+  - rtsp://210.99.70.120:1935/live/cctv008.stream
