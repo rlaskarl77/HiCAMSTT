@@ -4,11 +4,14 @@ import os.path as osp
 import time
 import argparse
 import yaml
+import random
+import json
 from typing import Dict, List   
 import torch
 import lightning as pl
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.gridspec as gridspec
 from PIL import Image, ImageDraw
 import numpy as np
 from kornia.geometry import warp_perspective
@@ -26,24 +29,64 @@ from utils.annotation import ObjectType, Data, Camera
 
 from datasets import StreamFactoryDataModule
 
+
+def normalize_color(color):
+    """
+    Normalize a (B, G, R) or (R, G, B) OpenCV color to a matplotlib RGB color.
+    """
+    if isinstance(color, tuple) and len(color) == 3:
+        # Normalize color values to [0, 1] and convert to matplotlib RGB format
+        normalized_color =  tuple(c / 255.0 for c in color)
+        return tuple(normalized_color)
+    else:
+        raise ValueError(f"Invalid color format: {color}")
+
+
+def reproject_world_to_image(world_coords, intrinsic, extrinsic):
+    if isinstance(world_coords, torch.Tensor):
+        world_coords = world_coords.cpu().numpy()
+    if isinstance(intrinsic, torch.Tensor):
+        intrinsic = intrinsic.cpu().numpy()
+    if isinstance(extrinsic, torch.Tensor):
+        extrinsic = extrinsic.cpu().numpy()
+
+    world_coords = world_coords.astype(np.float32)
+    intrinsic = intrinsic.astype(np.float32)
+    extrinsic = extrinsic.astype(np.float32)
+
+    if extrinsic.shape == (3, 4):
+        extrinsic = np.vstack([extrinsic, np.array([0, 0, 0, 1])])
+    if world_coords.ndim == 1:
+        world_coords = world_coords.reshape(1, -1)
+    if world_coords.shape[1] == 2:
+        world_coords = np.hstack((world_coords, np.zeros((world_coords.shape[0], 1)), np.ones((world_coords.shape[0], 1))))
+    elif world_coords.shape[1] == 3:
+        world_coords = np.hstack((world_coords, np.ones((world_coords.shape[0], 1))))
+    
+    camera_coords_hom = (extrinsic @ world_coords.T).T
+    image_coords_hom = (intrinsic[:3, :3] @ camera_coords_hom[:, :3].T).T
+    image_coords = image_coords_hom[:, :2] / image_coords_hom[:, 2:]
+    return image_coords
+
+
 class WorldTrackModel(pl.LightningModule):
     def __init__(
             self,
-            model_name='segnet',
+            model_name='mvdet',
             encoder_name='res18',
             learning_rate=0.001,
-            resolution=(200, 4, 200),
-            bounds=(-75, 75, -75, 75, -1, 5),
-            num_cameras=None,
-            depth=(100, 2.0, 25),
+            resolution=(250, 2, 125),
+            bounds=(0, 500, 0, 1000, 0, 2),
+            num_cameras=2,
+            depth=(32, 250, 3250),
             scene_centroid=(0.0, 0.0, 0.0),
             num_classes=1,
             z_sign=1,
             feat2d_dim=128,
             # decoder
-            learn_reid=True,
-            learn_pose=True,
-            id_pose_decompose=True,
+            learn_reid=False,
+            learn_pose=False,
+            id_pose_decompose=False,
             reid_feat=128,
             pose_feat=128,
             hard_mask=False,
@@ -53,7 +96,7 @@ class WorldTrackModel(pl.LightningModule):
             temperature_pose=1.,
             pose_cont_thresh=0.5,
             # tracker
-            use_reid_tracking=True,
+            use_reid_tracking=False,
             use_temporal_cache=True,
             max_detections=60,
             conf_threshold=0.5,
@@ -211,7 +254,6 @@ class WorldTrackModel(pl.LightningModule):
 
     def predict_step(self, batch, batch_idx):
         self.frame_counter += 1  # Increment frame counter
-        self.starter.record()
         
         item = batch
         output = self(item)
@@ -277,18 +319,6 @@ class WorldTrackModel(pl.LightningModule):
         if len(self.moda_now) == 0:
             self.moda_now = np.zeros((0, 3))
         
-        # self.log_results(item['time'][0])
-        
-        try:
-            self.draw_prediction(item, output, self.mota_now)
-        except Exception as e:
-            print(e)
-        
-        self.ender.record()
-        torch.cuda.synchronize()
-        
-        ellapsed_time = self.starter.elapsed_time(self.ender)
-        print(f'ellapsed_time: {ellapsed_time} ms')
         
             
             
@@ -467,24 +497,32 @@ class WorldTrackModel(pl.LightningModule):
         
 
 class WorldTrackInference:
-    def __init__(self, model_configs, sources, save_dir='.', max_id=999999):
+    def __init__(self, model_configs, sources, save_dir='.', 
+                 max_id=999999, visualize=False):
         self.models = {}
-        self.datamodule = StreamFactoryDataModule(sources=sources)
+        self.datamodule = StreamFactoryDataModule(sources=sources, verbose=False)
         self.global_id_counter = 0
         self.max_id = max_id
         self.id_mapping = {}
         self.id_history = {}
         self.save_dir = save_dir
+        self.visualize = visualize
         
         for scene_name, config in model_configs.items():
             checkpoint_path = config.pop('checkpoint_path')
-            model = WorldTrackModel.load_from_checkpoint(
-                checkpoint_path=checkpoint_path,
-                **config
-            )
+            model = WorldTrackModel(**config)
+            model.load_from_checkpoint(checkpoint_path)
+            # model = WorldTrackModel.load_from_checkpoint(
+            #     checkpoint_path=checkpoint_path,
+            #     **config
+            # )
             model.eval()
             model.cuda()
             self.models[scene_name] = model
+        self.color_map = {}
+        
+        self.starter = torch.cuda.Event(enable_timing=True)
+        self.ender = torch.cuda.Event(enable_timing=True)
 
     def get_next_available_id(self):
         """Find the next available ID, reusing old ones if needed"""
@@ -514,44 +552,228 @@ class WorldTrackInference:
 
     def run_inference(self):
         self.datamodule.setup('predict')
-        scene_loaders = self.datamodule.predict_dataloader()
+        
+        
+        print("Waiting for all streams to initialize...")
+        for scene_name, event in self.datamodule.init_events.items():
+            event.wait()
+        print("All streams initialized. Starting data loading.")
+        
+        loader = self.datamodule.predict_dataloader()
         
         # Create save directory if it doesn't exist
         os.makedirs(self.save_dir, exist_ok=True)
         
         while True:
-            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+            self.starter.record()
+            current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
             scene_results = []
+            all_scene_data = []
             
-            for scene_name, loader in zip(self.models.keys(), scene_loaders):
-                model = self.models[scene_name]
+            try:
+                # Get synchronized data from all scenes
+                scene_data = next(loader)
                 
-                try:
-                    batch = next(iter(loader))
-                    with torch.no_grad():
-                        output = model.predict_step(batch, 0)
-                        results = model.mota_now
-                        
-                        if len(results) > 0:
-                            results = np.array(results)
-                            # Add scene info to track_ids
-                            scene_results.append((scene_name, results))
+                if not scene_data:
+                    print("No data received. Skipping inference.")
+                    time.sleep(0.1)
+                    continue
+                
+                # Process each scene's data
+                for scene_name, batch in scene_data.items():
+                    model = self.models[scene_name]
+                    
+                    try:
+                        with torch.no_grad():
+                            output = model.predict_step(batch, 0)
+                            results = model.mota_now
                             
-                except StopIteration:
-                    continue
-                except Exception as e:
-                    print(f"Error processing scene {scene_name}: {e}")
-                    continue
-            
-            if scene_results:
-                final_results = self.process_all_results(scene_results)
+                            if len(results) > 0:
+                                results = np.array(results)
+                                scene_results.append((scene_name, results))
+                                
+                                all_scene_data.append({
+                                    'images': batch['img'][0].cpu().numpy(),
+                                    'results': np.array(results),
+                                    'intrinsics': batch['intrinsic'][0].cpu().numpy(),
+                                    'extrinsics': batch['extrinsic'][0].cpu().numpy()
+                                })
+                            else:
+                                all_scene_data.append({
+                                    'images': batch['img'][0].cpu().numpy(),
+                                    'results': np.zeros((0, 10)),
+                                    'intrinsics': batch['intrinsic'][0].cpu().numpy(),
+                                    'extrinsics': batch['extrinsic'][0].cpu().numpy()
+                                })
+                                
+                    except Exception as e:
+                        print(f"Error processing scene {scene_name}: {e}")
+                        continue
                 
-                if len(final_results) > 0:
-                    hdc_data = self.convert_results_to_hdc_format(final_results, current_time)
-                    save_path = os.path.join(self.save_dir, f"SNU_{current_time}_1.json")
-                    hdc_data.save_to_file(save_path)
-            
-            time.sleep(0.5)
+                if scene_results:
+                    final_results = self.process_all_results(scene_results)
+                    
+                    if len(final_results) > 0:
+                        hdc_data = self.convert_results_to_hdc_format(final_results, current_time)
+                        save_path = os.path.join(self.save_dir, f"SNU_{current_time}_1.json")
+                        hdc_data.save_to_file(save_path)
+
+                    save_path = os.path.join(self.save_dir, "visualizations")
+                    os.makedirs(save_path, exist_ok=True)
+                        
+                    if self.visualize:
+                        self.visualize_all_results(all_scene_data)
+                
+                self.ender.record()
+                torch.cuda.synchronize()
+                elapsed_time = self.starter.elapsed_time(self.ender)
+                print(f'Total inference time: {elapsed_time:.2f} ms')
+                
+            except StopIteration:
+                continue
+            except Exception as e:
+                print(f"Error in inference loop: {e}")
+                continue
+
+    
+    def prepare_image_for_opencv(self, image):
+        # Convert PyTorch Tensor to NumPy array
+        if isinstance(image, torch.Tensor):
+            image = image.cpu().numpy()
+        # Ensure image is a NumPy array
+        if not isinstance(image, np.ndarray):
+            raise ValueError("Input image must be a NumPy array or a PyTorch Tensor.")
+        # Rescale to 0-255 and convert to uint8 if dtype is not uint8
+        if image.dtype != np.uint8:
+            image = np.clip(image, 0, 1)  # Clamp values to 0-1 for normalization
+            image = (image * 255).astype(np.uint8)
+        # Ensure H x W x C format
+        if len(image.shape) == 3 and image.shape[0] == 3:  # C x H x W to H x W x C
+            image = np.transpose(image, (1, 2, 0))
+        elif len(image.shape) != 3 or image.shape[2] != 3:  # Ensure 3 channels
+            raise ValueError(f"Image shape {image.shape} is invalid. Expected H x W x C with 3 channels.")
+        if not image.flags['C_CONTIGUOUS']:
+            image = np.ascontiguousarray(image)
+        return image
+
+
+    def generate_color_map(self, object_ids):
+        """
+        Generate a consistent color map for object IDs.
+
+        Args:
+            object_ids (list[int]): List of object IDs.
+
+        Returns:
+            dict: A dictionary mapping object IDs to RGB color tuples.
+        """
+        for obj_id in object_ids:
+            if obj_id not in self.color_map:
+                self.color_map[obj_id] = tuple(random.randint(0, 255) for _ in range(3))
+        return self.color_map
+
+    def visualize_all_results(self, all_scene_data, save_path):
+        """
+        Visualizes tracking results with world coordinates and image coordinates,
+        and saves the visualizations.
+
+        Args:
+            all_scene_data (list): List of scene data dictionaries with images, results, intrinsics, and extrinsics.
+            save_path (str): Directory to save the visualizations.
+        """
+        os.makedirs(save_path, exist_ok=True)
+
+        # Object IDs and color mapping for visualization
+        pred_object_ids = []
+        for scene_data in all_scene_data:
+            if len(scene_data['results']) > 0:
+                pred_object_ids.extend(scene_data['results'][:, 2].astype(int))
+        pred_object_ids = np.unique(pred_object_ids)
+        pred_color_map = self.generate_color_map(pred_object_ids)
+
+        # Initialize trajectories for visualization
+        if not hasattr(self, "trajectories_pred"):
+            self.trajectories_pred = {obj_id: [] for obj_id in pred_object_ids}
+
+        for obj_id in pred_object_ids:
+            if obj_id not in self.trajectories_pred:
+                self.trajectories_pred[obj_id] = []
+
+        # Prepare 5x3 grid for visualization (2 columns for cameras, 1 for world grid)
+        fig = plt.figure(figsize=(15, 15))
+        gs = gridspec.GridSpec(5, 3, width_ratios=[1, 1, 1])  # 5 rows, 3 columns
+
+        # Process each scene
+        for scene_idx, scene_data in enumerate(all_scene_data):
+            images = scene_data["images"]
+            intrinsic = scene_data["intrinsics"]
+            extrinsic = scene_data["extrinsics"]
+            results = scene_data["results"]
+
+            for cam_idx in range(len(images)):
+                ax = fig.add_subplot(gs[scene_idx, cam_idx])
+                img = images[cam_idx].copy()
+                cam_image = self.prepare_image_for_opencv(img)
+                # Draw projected image coordinates
+                for obj_id in pred_object_ids:
+                    obj_data = results[results[:, 2] == obj_id]
+                    if obj_data.shape[0] == 0:
+                        continue
+
+                    world_coords = obj_data[:, [8, 9]]
+
+                    # Convert to homogeneous coordinates for re-projection
+                    homogeneous_coords = np.hstack((world_coords[:, :2], np.zeros((world_coords.shape[0], 1)), np.ones((world_coords.shape[0], 1))))
+                    image_coords = reproject_world_to_image(homogeneous_coords, intrinsic[cam_idx], extrinsic[cam_idx])
+
+                    # Draw points on the image
+                    for coord in image_coords:
+                        x, y = int(coord[0]), int(coord[1])
+                        cv2.circle(cam_image, (x, y), 10, pred_color_map[obj_id], -1)
+                        text_position = (x, y - 10)  # Position text slightly above the circle
+                        cv2.putText(
+                            cam_image, f"ID {obj_id}", text_position,
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, pred_color_map[obj_id], 2
+                        )
+
+                # Display the image with annotations
+                ax.imshow(cam_image)
+                ax.set_title(f"Scene {scene_idx} - Cam {cam_idx}")
+                ax.axis("off")
+
+        # Process world coordinates for all object IDs for the current frame
+        ax_world = fig.add_subplot(gs[:, 2])  # Use the last column for the world grid
+        ax_world.set_title("World Coordinates")
+        ax_world.set_xlim(0, 25)  # Reverse x-axis
+        ax_world.set_ylim(0, 290)  # Reverse y-axis
+        ax_world.set_aspect("equal")
+        ax_world.grid(True)
+
+        for obj_id in pred_object_ids:
+            # Filter only current frame and current object
+            for scene_data in all_scene_data:
+                results = scene_data["results"]
+                obj_results = results[results[:, 2] == obj_id]
+                if obj_results.shape[0] == 0:
+                    continue
+
+                # Extract world coordinates for current frame
+                world_coords = obj_results[:, [8, 9]]
+
+                # Plot current world coordinates
+                ax_world.plot(world_coords[:, 0], world_coords[:, 1], 'o', label=f"ID {obj_id}", color=normalize_color(pred_color_map[obj_id]))
+                ax_world.text(world_coords[-1, 0], world_coords[-1, 1] + 0.5, f"ID {obj_id}", fontsize=10, color=normalize_color(pred_color_map[obj_id]))
+
+        ax_world.legend(loc="upper right", fontsize=9)
+
+        # Save the combined visualization
+        frame_save_path = os.path.join(save_path, f"frame_{time.time():.2f}.png")
+        plt.tight_layout()
+        plt.savefig(frame_save_path)
+        plt.close(fig)
+
+
+
 
     def process_all_results(self, scene_results):
         all_detections = []
@@ -702,58 +924,6 @@ def validate_config(config: Dict) -> None:
         for field in required_model_fields:
             if field not in cfg:
                 raise ValueError(f"Missing required field '{field}' in {scene} config")
-            
-# Usage
-model_configs = {
-    'scene1': {
-        'checkpoint_path': '/home/namgi/HiCAMSTT/exp/lightning_logs/train/factory/mvdet/baseline/checkpoints/model-epoch=51-val_loss=7.70-val_center=4.07.ckpt',
-        'resolution': (250, 4, 125),
-        'bounds': (0, 500, 0, 1000, 0, 2),
-        'scene_centroid': (0.0, 0.0, 0.0),
-        'num_cameras': 2
-    },
-    'scene2': {
-        'checkpoint_path': '/home/namgi/HiCAMSTT/exp/lightning_logs/train/factory/mvdet/baseline/checkpoints/model-epoch=51-val_loss=7.70-val_center=4.07.ckpt',
-        'resolution': (250, 4, 125),
-        'bounds': (0, 500, 0, 1000, 0, 2),
-        'scene_centroid': (0.0, 0.0, 0.0),
-        'num_cameras': 2
-    },
-    'scene3': {
-        'checkpoint_path': '/home/namgi/HiCAMSTT/exp/lightning_logs/train/factory/mvdet/baseline/checkpoints/model-epoch=51-val_loss=7.70-val_center=4.07.ckpt',
-        'resolution': (250, 4, 125),
-        'bounds': (0, 500, 0, 1000, 0, 2),
-        'scene_centroid': (0.0, 0.0, 0.0),
-        'num_cameras': 2
-    },
-    'scene4': {
-        'checkpoint_path': '/home/namgi/HiCAMSTT/exp/lightning_logs/train/factory/mvdet/baseline/checkpoints/model-epoch=51-val_loss=7.70-val_center=4.07.ckpt',
-        'resolution': (250, 4, 125),
-        'bounds': (0, 500, 0, 1000, 0, 2),
-        'scene_centroid': (0.0, 0.0, 0.0),
-        'num_cameras': 2
-    },
-    'scene5': {
-        'checkpoint_path': '/home/namgi/HiCAMSTT/exp/lightning_logs/train/factory/mvdet/baseline/checkpoints/model-epoch=51-val_loss=7.70-val_center=4.07.ckpt',
-        'resolution': (250, 4, 125),
-        'bounds': (0, 500, 0, 1000, 0, 2),
-        'scene_centroid': (0.0, 0.0, 0.0),
-        'num_cameras': 2
-    }
-}
-
-sources = [
-    "rtsp://210.99.70.120:1935/live/cctv007.stream",
-    "rtsp://210.99.70.120:1935/live/cctv007.stream",
-    "rtsp://210.99.70.120:1935/live/cctv007.stream",
-    "rtsp://210.99.70.120:1935/live/cctv007.stream",
-    "rtsp://210.99.70.120:1935/live/cctv007.stream",
-    "rtsp://210.99.70.120:1935/live/cctv007.stream",
-    "rtsp://210.99.70.120:1935/live/cctv007.stream",
-    "rtsp://210.99.70.120:1935/live/cctv007.stream",
-    "rtsp://210.99.70.120:1935/live/cctv007.stream",
-    "rtsp://210.99.70.120:1935/live/cctv007.stream",
-]
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run multi-scene tracking inference')
@@ -762,6 +932,8 @@ def parse_args():
                       help='Path to config YAML file')
     parser.add_argument('--save-dir', type=str, default='.',
                       help='Directory to save output JSON files')
+    parser.add_argument('--visualize', action='store_true', default=False,
+                        help='Enable visualization')
     return parser.parse_args()
 
 if __name__ == '__main__':
@@ -779,7 +951,9 @@ if __name__ == '__main__':
     inference = WorldTrackInference(
         model_configs=config['model_configs'],
         sources=config['sources'],
-        save_dir=args.save_dir
+        save_dir=args.save_dir,
+        max_id=999999,
+        visualize=args.visualize,
     )
     
     def signal_handler(sig, frame):
